@@ -18,9 +18,9 @@ jobs:
           - mipsel_24kc
         branch:
           - openwrt-23.05
-        exclude:
-          - arch: aarch64_cortex-a53
-            branch: openwrt-23.05  # 假设此分支不支持该架构
+        #exclude:
+        #  - arch: aarch64_cortex-a53
+        #    branch: openwrt-23.05  # 假设此分支不支持该架构
 
     steps:
       - name: Checkout
