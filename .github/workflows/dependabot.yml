@@ -39,7 +39,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: 'MetaCubeX/mihomo'
-          ref: 'Latest'
+          ref: 'Meta'
           path: 'mihomo'
       - id: info
         name: info
