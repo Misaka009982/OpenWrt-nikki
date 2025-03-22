@@ -1,5 +1,4 @@
 name: release-packages
-
 on:
   workflow_dispatch:
   push:
@@ -15,91 +14,54 @@ jobs:
       fail-fast: false
       matrix:
         arch:
-          - arm_cortex-a5_vfpv4
-          - arm_cortex-a7_neon-vfpv4
-          - arm_cortex-a8_vfpv3
-          - arm_cortex-a9
-          - arm_cortex-a9_vfpv3-d16
-          - arm_cortex-a9_neon
-          - arm_cortex-a15_neon-vfpv4
-          - aarch64_cortex-a53
-          - aarch64_cortex-a72
-          - aarch64_cortex-a76
-          - aarch64_generic
-          - mips_24kc
-          - mips_4kec
-          - mips_mips32
-          - mipsel_24kc
-          - mipsel_24kc_24kf
-          - mipsel_74kc
-          - mipsel_mips32
-          - mips64_octeonplus
-          - i386_pentium4
           - x86_64
+          - aarch64_cortex-a53
+          - arm_cortex-a7_neon-vfpv4
         branch:
           - openwrt-23.05
           - openwrt-24.10
-          - SNAPSHOT
         exclude:
-          - arch: aarch64_cortex-a76
-            branch: openwrt-23.05
+          - arch: aarch64_cortex-a53
+            branch: openwrt-23.05  # 假设此分支不支持该架构
 
     steps:
-      - name: checkout
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: build
+      - name: Setup OpenWrt SDK
         uses: openwrt/gh-action-sdk@main
         env:
           ARCH: ${{ matrix.arch }}-${{ matrix.branch }}
-          FEEDNAME: nikki
-          PACKAGES: luci-app-nikki
-          INDEX: 1
-          KEY_BUILD: ${{ secrets.KEY_BUILD }}
-          NO_REFRESH_CHECK: true
 
-      - name: compress
+      - name: Prepare Dependencies
         run: |
-          tar -c -z -f nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz -C bin/packages/${{ matrix.arch }}/nikki .
-          mkdir -p public/${{ matrix.branch }}/${{ matrix.arch }}
-          mv bin/packages/${{ matrix.arch }}/nikki public/${{ matrix.branch }}/${{ matrix.arch }}
-          tar -c -z -f feed_nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz public/${{ matrix.branch }}/${{ matrix.arch }}
+          echo "src-git packages https://github.com/openwrt/packages.git;${{ matrix.branch }}" >> feeds.conf
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          make defconfig
+          # 修复已知配置冲突
+          sed -i 's/CONFIG_PACKAGE_ca-bundle=.*/CONFIG_PACKAGE_ca-bundle=y/' .config
 
-      - name: release
+      - name: Build Packages
+        run: make -j$(nproc) package/luci-app-nikki/compile V=s
+
+      - name: Compress Artifacts
+        run: |
+          mkdir -p public/${{ matrix.branch }}/${{ matrix.arch }}
+          cp bin/packages/*/nikki/*.ipk public/${{ matrix.branch }}/${{ matrix.arch }}
+          tar -czf nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz -C public .
+
+      - name: Upload Release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz
-
-      - name: upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: feed_nikki_${{ matrix.arch }}-${{ matrix.branch }}
-          path: feed_nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz
+          files: nikki_*.tar.gz
 
   feed:
-    needs: release
-    name: feed
+    needs: [release]
     runs-on: ubuntu-latest
-
     steps:
-      - name: download
-        uses: actions/download-artifact@v4
-        with:
-          pattern: feed_nikki_*
-          merge-multiple: true
-      
-      - name: uncompress
-        run: |
-          for file in feed_nikki_*.tar.gz; do tar -x -z -f "$file"; done
-      
-      - name: key
-        run: |
-          echo "${{ secrets.KEY_BUILD_PUB }}" > public/key-build.pub
-
-      - name: feed
+      - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          force_orphan: true
-          commit_message: "release: ${{ github.ref_name }}"
+          publish_dir: ./public
