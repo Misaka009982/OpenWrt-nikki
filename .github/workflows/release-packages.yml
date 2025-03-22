@@ -7,10 +7,9 @@ on:
       - v*
 
 jobs:
-  release:
-    name: ${{ matrix.arch }}-${{ matrix.branch }} release
+  build:
+    name: ${{ matrix.arch }}-${{ matrix.branch }} build
     runs-on: ubuntu-latest
-    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
@@ -46,12 +45,12 @@ jobs:
         with:
           files: |
             nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz
-
+            
       - name: upload
         uses: actions/upload-artifact@v4
         with:
-          name: feed_nikki_${{ matrix.arch }}-${{ matrix.branch }}
-          path: feed_nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz
+          name: nikki_${{ matrix.arch }}-${{ matrix.branch }}
+          path: bin/packages/${{ matrix.arch }}/nikki
 
   feed:
     needs: release
