@@ -14,12 +14,10 @@ jobs:
       fail-fast: false
       matrix:
         arch:
-          - x86_64
           - aarch64_cortex-a53
-          - arm_cortex-a7_neon-vfpv4
+          - mipsel_24kc
         branch:
           - openwrt-23.05
-          - openwrt-24.10
         exclude:
           - arch: aarch64_cortex-a53
             branch: openwrt-23.05  # 假设此分支不支持该架构
