@@ -1,5 +1,4 @@
 name: release-packages
-
 on:
   workflow_dispatch:
   push:
@@ -18,7 +17,6 @@ jobs:
           - mipsel_24kc
         branch:
           - openwrt-23.05
-
     steps:
       - name: checkout
         uses: actions/checkout@v4
@@ -26,48 +24,48 @@ jobs:
       - name: build
         uses: openwrt/gh-action-sdk@main
         env:
-          ARCH: ${{ matrix.arch }}-${{ matrix.branch }}
+          ARCH: ${{ matrix.arch }}        # 只保留架构名称
           FEEDNAME: nikki
           PACKAGES: luci-app-nikki
+          V: s                            # 启用详细日志
           INDEX: 1
           KEY_BUILD: ${{ secrets.KEY_BUILD }}
           NO_REFRESH_CHECK: true
 
       - name: compress
         run: |
-          tar -c -z -f nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz -C bin/packages/${{ matrix.arch }}/nikki .
-          mkdir -p -j1 V=s public/${{ matrix.branch }}/${{ matrix.arch }}
-          mv bin/packages/${{ matrix.arch }}/nikki public/${{ matrix.branch }}/${{ matrix.arch }}
-          tar -c -z -f feed_nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz public/${{ matrix.branch }}/${{ matrix.arch }}
+          # 修正 mkdir 命令，移除 -j1 V=s
+          mkdir -p public/${{ matrix.branch }}/${{ matrix.arch }}
+          # 移动生成的软件包到 public 目录
+          mv bin/packages/${{ matrix.arch }}/nikki/* public/${{ matrix.branch }}/${{ matrix.arch }}/
+          # 打包发布文件
+          tar -czf nikki_${{ matrix.arch }}.tar.gz -C public/${{ matrix.branch }}/${{ matrix.arch }} .
+          tar -czf feed_nikki_${{ matrix.arch }}.tar.gz public/
 
       - name: release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz
-            
-      - name: upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: nikki_${{ matrix.arch }}-${{ matrix.branch }}
-          path: bin/packages/${{ matrix.arch }}/nikki
+            nikki_${{ matrix.arch }}.tar.gz
+            feed_nikki_${{ matrix.arch }}.tar.gz
 
   feed:
     needs: release
     name: feed
     runs-on: ubuntu-latest
-
     steps:
       - name: download
         uses: actions/download-artifact@v4
         with:
           pattern: feed_nikki_*
           merge-multiple: true
-      
+
       - name: uncompress
         run: |
-          for file in feed_nikki_*.tar.gz; do tar -x -z -f "$file"; done
-      
+          for file in feed_nikki_*.tar.gz; do
+            tar -xzf "$file"
+          done
+
       - name: key
         run: |
           echo "${{ secrets.KEY_BUILD_PUB }}" > public/key-build.pub
