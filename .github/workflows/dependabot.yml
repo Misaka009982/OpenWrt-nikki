@@ -78,12 +78,9 @@ jobs:
         uses: peter-evans/create-pull-request@v6
         with:
           path: OpenWrt-nikki
-          branch: dependabot/mihomo-${{ needs.get_latest_info.outputs.latest_tag }}
+          branch: dependabot
           delete-branch: true
-          commit-message: "build(mihomo): update to ${{ needs.get_latest_info.outputs.latest_tag }}"
-          title: "build: update mihomo to ${{ needs.get_latest_info.outputs.latest_tag }}"
+          commit-message: "build: update mihomo to ${{ needs.get_latest_info.outputs.short_commit_sha }}"
+          title: "build: update mihomo to ${{ needs.get_latest_info.outputs.short_commit_sha }}"
           body: |
-            Auto-generated PR updating mihomo to [${{ needs.get_latest_info.outputs.latest_tag }}](https://github.com/MetaCubeX/mihomo/releases/tag/${{ needs.get_latest_info.outputs.latest_tag }})
-            - **Commit SHA**: ${{ needs.get_latest_info.outputs.commit_sha }}
-            - **Checksum**: `${{ needs.get_latest_info.outputs.checksum }}`
-          labels: dependencies,automation
+            [Changelog](https://github.com/metacubex/mihomo/compare/${{ needs.get_current_info.outputs.pkg_source_version }}...${{  needs.get_latest_info.outputs.commit_sha }})
