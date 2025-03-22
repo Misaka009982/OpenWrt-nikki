@@ -46,9 +46,14 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            nikki_${{ matrix.arch }}.tar.gz
-            feed_nikki_${{ matrix.arch }}.tar.gz
+            nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz
 
+      - name: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: feed_nikki_${{ matrix.arch }}-${{ matrix.branch }}
+          path: feed_nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz
+          
   feed:
     needs: release
     name: feed
