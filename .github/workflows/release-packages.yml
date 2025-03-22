@@ -24,23 +24,24 @@ jobs:
       - name: build
         uses: openwrt/gh-action-sdk@main
         env:
-          ARCH: ${{ matrix.arch }}        # 只保留架构名称
+          ARCH: ${{ matrix.arch }}
           FEEDNAME: nikki
           PACKAGES: luci-app-nikki
-          V: s                            # 启用详细日志
-          INDEX: 1
+          V: s
+          INDEX: 0                        # 禁用索引生成，避免依赖问题
           KEY_BUILD: ${{ secrets.KEY_BUILD }}
           NO_REFRESH_CHECK: true
 
       - name: compress
         run: |
-          # 修正 mkdir 命令，移除 -j1 V=s
+          # 创建输出目录
           mkdir -p public/${{ matrix.branch }}/${{ matrix.arch }}
-          # 移动生成的软件包到 public 目录
+          # 移动生成的软件包到public目录
           mv bin/packages/${{ matrix.arch }}/nikki/* public/${{ matrix.branch }}/${{ matrix.arch }}/
-          # 打包发布文件
-          tar -czf nikki_${{ matrix.arch }}.tar.gz -C public/${{ matrix.branch }}/${{ matrix.arch }} .
-          tar -czf feed_nikki_${{ matrix.arch }}.tar.gz public/
+          # 打包软件包，确保文件名一致
+          tar -czf nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz -C public/${{ matrix.branch }}/${{ matrix.arch }} .
+          # 打包feed，确保文件名一致
+          tar -czf feed_nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz public/
 
       - name: release
         uses: softprops/action-gh-release@v2
