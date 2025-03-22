@@ -1,4 +1,5 @@
 name: release-packages
+
 on:
   workflow_dispatch:
   push:
@@ -18,48 +19,63 @@ jobs:
           - mipsel_24kc
         branch:
           - openwrt-23.05
-        #exclude:
-        #  - arch: aarch64_cortex-a53
-        #    branch: openwrt-23.05  # 假设此分支不支持该架构
 
     steps:
-      - name: Checkout
+      - name: checkout
         uses: actions/checkout@v4
 
-      - name: Setup OpenWrt SDK
+      - name: build
         uses: openwrt/gh-action-sdk@main
         env:
           ARCH: ${{ matrix.arch }}-${{ matrix.branch }}
+          FEEDNAME: nikki
+          PACKAGES: luci-app-nikki
+          INDEX: 1
+          KEY_BUILD: ${{ secrets.KEY_BUILD }}
+          NO_REFRESH_CHECK: true
 
-      - name: Prepare Dependencies
+      - name: compress
         run: |
-          echo "src-git packages https://github.com/openwrt/packages.git;${{ matrix.branch }}" >> feeds.conf
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-          make defconfig
-          # 修复已知配置冲突
-          sed -i 's/CONFIG_PACKAGE_ca-bundle=.*/CONFIG_PACKAGE_ca-bundle=y/' .config
-
-      - name: Build Packages
-        run: make -j$(nproc) package/luci-app-nikki/compile V=s
-
-      - name: Compress Artifacts
-        run: |
+          tar -c -z -f nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz -C bin/packages/${{ matrix.arch }}/nikki .
           mkdir -p public/${{ matrix.branch }}/${{ matrix.arch }}
-          cp bin/packages/*/nikki/*.ipk public/${{ matrix.branch }}/${{ matrix.arch }}
-          tar -czf nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz -C public .
+          mv bin/packages/${{ matrix.arch }}/nikki public/${{ matrix.branch }}/${{ matrix.arch }}
+          tar -c -z -f feed_nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz public/${{ matrix.branch }}/${{ matrix.arch }}
 
-      - name: Upload Release
+      - name: release
         uses: softprops/action-gh-release@v2
         with:
-          files: nikki_*.tar.gz
+          files: |
+            nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz
+
+      - name: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: feed_nikki_${{ matrix.arch }}-${{ matrix.branch }}
+          path: feed_nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz
 
   feed:
-    needs: [release]
+    needs: release
+    name: feed
     runs-on: ubuntu-latest
+
     steps:
-      - name: Deploy to GitHub Pages
+      - name: download
+        uses: actions/download-artifact@v4
+        with:
+          pattern: feed_nikki_*
+          merge-multiple: true
+      
+      - name: uncompress
+        run: |
+          for file in feed_nikki_*.tar.gz; do tar -x -z -f "$file"; done
+      
+      - name: key
+        run: |
+          echo "${{ secrets.KEY_BUILD_PUB }}" > public/key-build.pub
+
+      - name: feed
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./public
+          force_orphan: true
+          commit_message: "release: ${{ github.ref_name }}"
