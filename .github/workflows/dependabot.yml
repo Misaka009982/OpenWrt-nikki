@@ -27,47 +27,6 @@ jobs:
           echo "pkg_mirror_hash=$(grep "PKG_MIRROR_HASH:=" OpenWrt-nikki/nikki/Makefile | cut -d '=' -f 2)" >> $GITHUB_OUTPUT
           echo "pkg_build_version=$(grep "PKG_BUILD_VERSION:=" OpenWrt-nikki/nikki/Makefile | cut -d '=' -f 2)" >> $GITHUB_OUTPUT
 
-  calculate_checksum:
-    runs-on: ubuntu-latest
-    outputs:
-      checksum: ${{ steps.gen_checksum.outputs.value }}
-    steps:
-      - id: checkout
-        name: checkout mihomo
-        uses: actions/checkout@v4
-        with:
-          repository: 'MetaCubeX/mihomo'
-          ref: 'v1.19.3'
-          path: 'mihomo'
-          
-      - id: gen_checksum
-        name: generate checksum
-        run: |
-          # 直接在当前目录生成tar.gz
-          cd mihomo
-          git archive --format=tar.gz --output=../mihomo.tar.gz HEAD
-          cd ..
-          
-          # 计算并验证校验和
-          CHECKSUM=$(sha256sum mihomo.tar.gz | cut -d ' ' -f 1)
-          echo "生成的校验和: $CHECKSUM"
-          ls -la mihomo.tar.gz
-          
-          # 手动校验一次
-          echo "校验和长度: ${#CHECKSUM}"
-          if [ ${#CHECKSUM} -ne 64 ]; then
-            echo "错误：校验和长度不正确，应为64个字符"
-            exit 1
-          fi
-          
-          # 设置输出 - 使用固定值作为备份方案
-          if [ -n "$CHECKSUM" ]; then
-            echo "value=$CHECKSUM" >> $GITHUB_OUTPUT
-          else
-            echo "value=49b3f258ce98c84b47007955e97efaa959c2b4c8596f05651366eb5bb8b3474e" >> $GITHUB_OUTPUT
-            echo "使用备用校验和"
-          fi
-
   get_latest_info:
     runs-on: ubuntu-latest
     outputs:
@@ -98,11 +57,48 @@ jobs:
           echo "commit_sha=$(git -C mihomo rev-parse HEAD)" >> $GITHUB_OUTPUT
           echo "short_commit_sha=$(git -C mihomo rev-parse --short HEAD)" >> $GITHUB_OUTPUT
           
+  get_openwrt_hash:
+    runs-on: ubuntu-latest
+    needs: get_latest_info
+    outputs:
+      openwrt_hash: ${{ steps.get_hash.outputs.hash }}
+    steps:
+      - id: checkout
+        name: checkout
+        uses: actions/checkout@v4
+        with:
+          repository: 'MetaCubeX/mihomo'
+          ref: ${{ needs.get_latest_info.outputs.commit_sha }}
+          fetch-depth: 0
+      
+      - id: get_hash
+        name: 获取OpenWrt格式的哈希值
+        run: |
+          # 安装必要的工具
+          sudo apt-get update
+          sudo apt-get install -y zstd
+          
+          # 使用OpenWrt相同的方式生成tar.zst
+          DATE=$(date +%Y.%m.%d)
+          REF=$(git rev-parse HEAD)
+          SHORT_REF=$(git rev-parse --short HEAD)
+          
+          # 创建tar.zst文件并计算哈希值
+          git archive --prefix=mihomo-$REF/ $REF | zstd -T0 > mihomo-$DATE~$SHORT_REF.tar.zst
+          
+          # 计算哈希值
+          HASH=$(sha256sum mihomo-$DATE~$SHORT_REF.tar.zst | cut -d ' ' -f 1)
+          echo "OpenWrt格式哈希值: $HASH"
+          echo "hash=$HASH" >> $GITHUB_OUTPUT
+          
+          # 显示文件信息
+          ls -lh mihomo-$DATE~$SHORT_REF.tar.zst
+          
   update:
     needs:
       - get_current_info
       - get_latest_info
-      - calculate_checksum
+      - get_openwrt_hash
     if: ${{ needs.get_current_info.outputs.pkg_source_version != needs.get_latest_info.outputs.commit_sha }}
     runs-on: ubuntu-latest
     steps:
@@ -124,7 +120,7 @@ jobs:
           echo "将更新以下值:"
           echo "提交日期: ${{ needs.get_latest_info.outputs.commit_date }}"
           echo "提交哈希: ${{ needs.get_latest_info.outputs.commit_sha }}"
-          echo "校验和: ${{ needs.calculate_checksum.outputs.checksum }}"
+          echo "OpenWrt哈希: ${{ needs.get_openwrt_hash.outputs.openwrt_hash }}"
           echo "版本号: ${{ needs.get_latest_info.outputs.latest_tag }}"
           
           # 创建分支
@@ -134,19 +130,11 @@ jobs:
           echo "更新前的Makefile内容:"
           grep -E "PKG_SOURCE_VERSION|PKG_MIRROR_HASH|PKG_BUILD_VERSION|PKG_SOURCE_DATE" nikki/Makefile
           
-          # 设置校验和变量
-          CHECKSUM="${{ needs.calculate_checksum.outputs.value }}"
-          if [ -z "$CHECKSUM" ]; then
-            CHECKSUM="49b3f258ce98c84b47007955e97efaa959c2b4c8596f05651366eb5bb8b3474e"
-            echo "使用硬编码的备用校验和"
-          fi
-          echo "将使用的校验和: $CHECKSUM"
-          
           # 更新Makefile
           sed -i "s/PKG_RELEASE:=.*/PKG_RELEASE:=1/" nikki/Makefile
           sed -i "s|PKG_SOURCE_DATE:=.*|PKG_SOURCE_DATE:=${{ needs.get_latest_info.outputs.commit_date }}|" nikki/Makefile
           sed -i "s|PKG_SOURCE_VERSION:=.*|PKG_SOURCE_VERSION:=${{ needs.get_latest_info.outputs.commit_sha }}|" nikki/Makefile
-          sed -i "s|PKG_MIRROR_HASH:=.*|PKG_MIRROR_HASH:=$CHECKSUM|" nikki/Makefile
+          sed -i "s|PKG_MIRROR_HASH:=.*|PKG_MIRROR_HASH:=${{ needs.get_openwrt_hash.outputs.openwrt_hash }}|" nikki/Makefile
           sed -i "s|PKG_BUILD_VERSION:=.*|PKG_BUILD_VERSION:=${{ needs.get_latest_info.outputs.latest_tag }}|" nikki/Makefile
           
           # 显示更新后结果
@@ -184,7 +172,7 @@ jobs:
             
           ## 更新信息
           - 提交: ${{ needs.get_current_info.outputs.pkg_source_version }} → ${{ needs.get_latest_info.outputs.commit_sha }}
-          - 校验和: ${{ needs.get_current_info.outputs.pkg_mirror_hash }} → ${{ needs.calculate_checksum.outputs.value }}
+          - 校验和: ${{ needs.get_current_info.outputs.pkg_mirror_hash }} → ${{ needs.get_openwrt_hash.outputs.openwrt_hash }}
           - 日期: ${{ needs.get_latest_info.outputs.commit_date }}
             
           ## 变更日志
