@@ -11,6 +11,7 @@ jobs:
       pkg_source_version: ${{ steps.info.outputs.pkg_source_version }}
       pkg_mirror_hash: ${{ steps.info.outputs.pkg_mirror_hash }}
       pkg_build_version: ${{ steps.info.outputs.pkg_build_version }}
+      pkg_source_date: ${{ steps.info.outputs.pkg_source_date }}
     steps:
       - name: Checkout OpenWrt-nikki
         uses: actions/checkout@v4
@@ -32,17 +33,20 @@ jobs:
           PKG_SOURCE_VERSION=$(grep 'PKG_SOURCE_VERSION:=' OpenWrt-nikki/nikki/Makefile | cut -d '=' -f 2 | tr -d ' ')
           PKG_MIRROR_HASH=$(grep 'PKG_MIRROR_HASH:=' OpenWrt-nikki/nikki/Makefile | cut -d '=' -f 2 | tr -d ' ')
           PKG_BUILD_VERSION=$(grep 'PKG_BUILD_VERSION:=' OpenWrt-nikki/nikki/Makefile | cut -d '=' -f 2 | tr -d ' ')
+          PKG_SOURCE_DATE=$(grep 'PKG_SOURCE_DATE:=' OpenWrt-nikki/nikki/Makefile | cut -d '=' -f 2 | tr -d ' ')
           
           # 输出信息
           echo "当前版本信息:"
           echo "PKG_SOURCE_VERSION: $PKG_SOURCE_VERSION"
           echo "PKG_MIRROR_HASH: $PKG_MIRROR_HASH"
           echo "PKG_BUILD_VERSION: $PKG_BUILD_VERSION"
+          echo "PKG_SOURCE_DATE: $PKG_SOURCE_DATE"
           
           # 设置输出变量，确保有默认值
           echo "pkg_source_version=${PKG_SOURCE_VERSION:-unknown}" >> $GITHUB_OUTPUT
           echo "pkg_mirror_hash=${PKG_MIRROR_HASH:-unknown}" >> $GITHUB_OUTPUT
           echo "pkg_build_version=${PKG_BUILD_VERSION:-unknown}" >> $GITHUB_OUTPUT
+          echo "pkg_source_date=${PKG_SOURCE_DATE:-unknown}" >> $GITHUB_OUTPUT
 
   get_latest_info:
     runs-on: ubuntu-latest
@@ -113,18 +117,22 @@ jobs:
         run: |
           cd OpenWrt-nikki/nikki
           
+          # 获取当前日期（UTC）
+          CURRENT_DATE=$(date -u +%Y-%m-%d)
+          
           # 显示更新前的内容
           echo "更新前的Makefile信息:"
-          grep -E 'PKG_SOURCE_VERSION|PKG_MIRROR_HASH|PKG_BUILD_VERSION' Makefile
+          grep -E 'PKG_SOURCE_VERSION|PKG_MIRROR_HASH|PKG_BUILD_VERSION|PKG_SOURCE_DATE' Makefile
           
           # 更新Makefile
           sed -i "s|PKG_SOURCE_VERSION:=.*|PKG_SOURCE_VERSION:=${{ needs.get_latest_info.outputs.commit_sha }}|" Makefile
           sed -i "s|PKG_MIRROR_HASH:=.*|PKG_MIRROR_HASH:=${{ needs.get_latest_info.outputs.checksum }}|" Makefile
           sed -i "s|PKG_BUILD_VERSION:=.*|PKG_BUILD_VERSION:=${{ needs.get_latest_info.outputs.latest_tag }}|" Makefile
+          sed -i "s|PKG_SOURCE_DATE:=.*|PKG_SOURCE_DATE:=${CURRENT_DATE}|" Makefile
           
           # 显示更新后的内容
           echo "更新后的Makefile信息:"
-          grep -E 'PKG_SOURCE_VERSION|PKG_MIRROR_HASH|PKG_BUILD_VERSION' Makefile
+          grep -E 'PKG_SOURCE_VERSION|PKG_MIRROR_HASH|PKG_BUILD_VERSION|PKG_SOURCE_DATE' Makefile
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v6
@@ -141,6 +149,7 @@ jobs:
             ## 更新信息
             - 版本: ${{ needs.get_current_info.outputs.pkg_build_version }} → ${{ needs.get_latest_info.outputs.latest_tag }}
             - 提交: ${{ needs.get_current_info.outputs.pkg_source_version }} → ${{ needs.get_latest_info.outputs.commit_sha }}
+            - 日期: ${{ needs.get_current_info.outputs.pkg_source_date }} → $(date -u +%Y-%m-%d)
             
             ## 变更日志
             [查看完整变更](https://github.com/metacubex/mihomo/compare/${{ needs.get_current_info.outputs.pkg_source_version }}...${{  needs.get_latest_info.outputs.commit_sha }})
