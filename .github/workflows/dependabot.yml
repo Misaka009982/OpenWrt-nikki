@@ -1,4 +1,5 @@
 name: dependabot
+
 on:
   schedule:
     - cron: "0 0 * * *"
@@ -19,45 +20,63 @@ jobs:
           repository: Misaka009982/OpenWrt-nikki
           ref: main
           path: OpenWrt-nikki
-
       - id: info
         name: info
         run: |
           echo "pkg_source_version=$(grep "PKG_SOURCE_VERSION:=" OpenWrt-nikki/nikki/Makefile | cut -d '=' -f 2)" >> $GITHUB_OUTPUT
           echo "pkg_mirror_hash=$(grep "PKG_MIRROR_HASH:=" OpenWrt-nikki/nikki/Makefile | cut -d '=' -f 2)" >> $GITHUB_OUTPUT
           echo "pkg_build_version=$(grep "PKG_BUILD_VERSION:=" OpenWrt-nikki/nikki/Makefile | cut -d '=' -f 2)" >> $GITHUB_OUTPUT
-
   get_latest_info:
     runs-on: ubuntu-latest
     outputs:
-      latest_tag: ${{ steps.info.outputs.latest_tag }}
-      commit_sha: ${{ steps.info.outputs.commit_sha }}
       commit_date: ${{ steps.info.outputs.commit_date }}
+      commit_sha: ${{ steps.info.outputs.commit_sha }}
+      short_commit_sha: ${{ steps.info.outputs.short_commit_sha }}
       checksum: ${{ steps.info.outputs.checksum }}
+      tag_name: ${{ steps.info.outputs.tag_name }}
     steps:
-      - id: get_latest_tag
-        name: Get latest tag
+      - id: fetch_latest_tag
+        name: 获取最新标签
         run: |
-          latest_tag=$(curl -s "https://api.github.com/repos/MetaCubeX/mihomo/tags" | jq -r '.[0].name')
-          echo "latest_tag=${latest_tag}" >> $GITHUB_OUTPUT
-
-      - id: get_tag_info
-        name: Get tag information
+          # 获取最新标签名
+          LATEST_TAG=$(curl -s https://api.github.com/repos/MetaCubeX/mihomo/tags | jq -r '.[0].name')
+          echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_ENV
+          echo "获取到的最新标签: $LATEST_TAG"
+          
+          # 获取标签引用详情
+          TAG_INFO=$(curl -s https://api.github.com/repos/MetaCubeX/mihomo/git/ref/tags/$LATEST_TAG)
+          COMMIT_SHA=$(echo $TAG_INFO | jq -r '.object.sha')
+          echo "COMMIT_SHA=$COMMIT_SHA" >> $GITHUB_ENV
+          echo "标签对应的提交 SHA: $COMMIT_SHA"
+          
+          # 获取提交详情
+          COMMIT_INFO=$(curl -s https://api.github.com/repos/MetaCubeX/mihomo/commits/$COMMIT_SHA)
+          COMMIT_DATE=$(echo $COMMIT_INFO | jq -r '.commit.committer.date' | cut -d'T' -f1)
+          echo "COMMIT_DATE=$COMMIT_DATE" >> $GITHUB_ENV
+          echo "提交日期: $COMMIT_DATE"
+      
+      - id: checkout
+        name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          repository: 'MetaCubeX/mihomo'
+          ref: ${{ env.COMMIT_SHA }}
+          path: 'mihomo'
+      
+      - id: info
+        name: 收集信息
         run: |
-          tag_name=${{ steps.get_latest_tag.outputs.latest_tag }}
-          tag_sha=$(curl -s "https://api.github.com/repos/MetaCubeX/mihomo/git/ref/tags/${tag_name}" | jq -r '.object.sha')
-          commit_date=$(curl -s "https://api.github.com/repos/MetaCubeX/mihomo/commits/${tag_sha}" | jq -r '.commit.author.date' | cut -d 'T' -f 1)
-          echo "commit_sha=${tag_sha}" >> $GITHUB_OUTPUT
-          echo "commit_date=${commit_date}" >> $GITHUB_OUTPUT
-
-      - id: get_checksum
-        name: Get checksum
-        run: |
-          # 下载源码包并计算 checksum
-          curl -L -o mihomo.tar.gz "https://github.com/MetaCubeX/mihomo/archive/refs/tags/${{ steps.get_latest_tag.outputs.latest_tag }}.tar.gz"
-          checksum=$(sha256sum mihomo.tar.gz | cut -d ' ' -f 1)
-          echo "checksum=${checksum}" >> $GITHUB_OUTPUT
-
+          echo "commit_date=${{ env.COMMIT_DATE }}" >> $GITHUB_OUTPUT
+          echo "commit_sha=${{ env.COMMIT_SHA }}" >> $GITHUB_OUTPUT
+          echo "short_commit_sha=$(echo ${{ env.COMMIT_SHA }} | cut -c1-7)" >> $GITHUB_OUTPUT
+          echo "tag_name=${{ env.LATEST_TAG }}" >> $GITHUB_OUTPUT
+          
+          # 创建压缩包并计算校验和
+          git -C mihomo config tar.xz.command "xz -c"
+          git -C mihomo archive --output=mihomo.tar.xz HEAD
+          CHECKSUM=$(sha256sum mihomo.tar.xz | cut -d ' ' -f 1)
+          echo "checksum=$CHECKSUM" >> $GITHUB_OUTPUT
+          echo "校验和: $CHECKSUM"
   update:
     needs:
       - get_current_info
@@ -72,7 +91,6 @@ jobs:
           repository: Misaka009982/OpenWrt-nikki
           ref: main
           path: OpenWrt-nikki
-
       - id: update
         name: update
         run: |
@@ -80,17 +98,19 @@ jobs:
           sed -i "s/PKG_SOURCE_DATE:=.*/PKG_SOURCE_DATE:=${{ needs.get_latest_info.outputs.commit_date }}/" OpenWrt-nikki/nikki/Makefile
           sed -i "s/PKG_SOURCE_VERSION:=.*/PKG_SOURCE_VERSION:=${{ needs.get_latest_info.outputs.commit_sha }}/" OpenWrt-nikki/nikki/Makefile
           sed -i "s/PKG_MIRROR_HASH:=.*/PKG_MIRROR_HASH:=${{ needs.get_latest_info.outputs.checksum }}/" OpenWrt-nikki/nikki/Makefile
-          sed -i "s/PKG_BUILD_VERSION:=.*/PKG_BUILD_VERSION:=${{ needs.get_latest_info.outputs.latest_tag }}/" OpenWrt-nikki/nikki/Makefile
-
+          sed -i "s/PKG_BUILD_VERSION:=.*/PKG_BUILD_VERSION:=${{ needs.get_latest_info.outputs.tag_name }}/" OpenWrt-nikki/nikki/Makefile
       - id: pr
         name: pr
         uses: peter-evans/create-pull-request@v6
         with:
           path: OpenWrt-nikki
           branch: dependabot
-          base: main
-          commit-message: "build: update mihomo to ${{ needs.get_latest_info.outputs.latest_tag }}"
-          title: "build: update mihomo to ${{ needs.get_latest_info.outputs.latest_tag }}"
+          commit-message: "build: update mihomo to ${{ needs.get_latest_info.outputs.tag_name }}"
+          title: "build: update mihomo to ${{ needs.get_latest_info.outputs.tag_name }}"
           body: |
-            [Changelog](https://github.com/MetaCubeX/mihomo/compare/${{ needs.get_current_info.outputs.pkg_source_version }}...${{ needs.get_latest_info.outputs.commit_sha }})
-            Automated update from GitHub Actions
+            将 mihomo 更新到最新标签: ${{ needs.get_latest_info.outputs.tag_name }}
+            
+            提交: ${{ needs.get_latest_info.outputs.commit_sha }}
+            日期: ${{ needs.get_latest_info.outputs.commit_date }}
+            
+            [更新日志](https://github.com/metacubex/mihomo/compare/${{ needs.get_current_info.outputs.pkg_source_version }}...${{  needs.get_latest_info.outputs.commit_sha }})
