@@ -13,9 +13,9 @@ jobs:
   get_current_info:
     runs-on: ubuntu-latest
     outputs:
-      pkg_source_version: ${{ steps.info.outputs.pkg_source_version }}
-      pkg_mirror_hash: ${{ steps.info.outputs.pkg_mirror_hash }}
-      pkg_build_version: ${{ steps.info.outputs.pkg_build_version }}
+      pkg_version: ${{ steps.info.outputs.pkg_version }}
+      pkg_hash: ${{ steps.info.outputs.pkg_hash }}
+      pkg_release: ${{ steps.info.outputs.pkg_release }}
     steps:
       - id: checkout
         name: checkout
@@ -27,113 +27,87 @@ jobs:
       - id: info
         name: info
         run: |
-          echo "pkg_source_version=$(grep "PKG_SOURCE_VERSION:=" OpenWrt-nikki/nikki/Makefile | cut -d '=' -f 2)" >> $GITHUB_OUTPUT
-          echo "pkg_mirror_hash=$(grep "PKG_MIRROR_HASH:=" OpenWrt-nikki/nikki/Makefile | cut -d '=' -f 2)" >> $GITHUB_OUTPUT
-          echo "pkg_build_version=$(grep "PKG_BUILD_VERSION:=" OpenWrt-nikki/nikki/Makefile | cut -d '=' -f 2)" >> $GITHUB_OUTPUT
+          echo "pkg_version=$(grep "PKG_VERSION:=" OpenWrt-nikki/nikki/Makefile | cut -d '=' -f 2)" >> $GITHUB_OUTPUT
+          echo "pkg_hash=$(grep "PKG_HASH:=" OpenWrt-nikki/nikki/Makefile | cut -d '=' -f 2)" >> $GITHUB_OUTPUT
+          echo "pkg_release=$(grep "PKG_RELEASE:=" OpenWrt-nikki/nikki/Makefile | cut -d '=' -f 2)" >> $GITHUB_OUTPUT
   get_latest_info:
     runs-on: ubuntu-latest
     outputs:
-      commit_date: ${{ steps.info.outputs.commit_date }}
-      commit_sha: ${{ steps.info.outputs.commit_sha }}
-      short_commit_sha: ${{ steps.info.outputs.short_commit_sha }}
-      checksum: ${{ steps.info.outputs.checksum }}
+      version: ${{ steps.info.outputs.version }}
+      hash: ${{ steps.info.outputs.hash }}
       tag_name: ${{ steps.info.outputs.tag_name }}
+      release_date: ${{ steps.info.outputs.release_date }}
     steps:
       - id: fetch_latest_tag
         name: 获取最新标签
         run: |
-          # 获取最新标签名
+          # 获取最新标签名（去除版本号前缀的 v）
           LATEST_TAG=$(curl -s https://api.github.com/repos/MetaCubeX/mihomo/tags | jq -r '.[0].name')
           echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_ENV
           echo "获取到的最新标签: $LATEST_TAG"
           
-          # 获取标签引用详情
-          TAG_INFO=$(curl -s https://api.github.com/repos/MetaCubeX/mihomo/git/ref/tags/$LATEST_TAG)
-          COMMIT_SHA=$(echo $TAG_INFO | jq -r '.object.sha')
-          echo "COMMIT_SHA=$COMMIT_SHA" >> $GITHUB_ENV
-          echo "标签对应的提交 SHA: $COMMIT_SHA"
+          # 提取版本号（去掉前缀 'v'）
+          VERSION=$(echo $LATEST_TAG | sed 's/^v//')
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "版本号: $VERSION"
           
-          # 获取提交详情
-          COMMIT_INFO=$(curl -s https://api.github.com/repos/MetaCubeX/mihomo/commits/$COMMIT_SHA)
-          COMMIT_DATE=$(echo $COMMIT_INFO | jq -r '.commit.committer.date' | cut -d'T' -f1)
-          echo "COMMIT_DATE=$COMMIT_DATE" >> $GITHUB_ENV
-          echo "提交日期: $COMMIT_DATE"
+          # 获取发布日期
+          RELEASE_INFO=$(curl -s https://api.github.com/repos/MetaCubeX/mihomo/releases/tags/$LATEST_TAG)
+          RELEASE_DATE=$(echo $RELEASE_INFO | jq -r '.published_at' | cut -d'T' -f1)
+          echo "RELEASE_DATE=$RELEASE_DATE" >> $GITHUB_ENV
+          echo "发布日期: $RELEASE_DATE"
       
-      - id: checkout
-        name: 检出代码
-        uses: actions/checkout@v4
-        with:
-          repository: 'MetaCubeX/mihomo'
-          ref: ${{ env.COMMIT_SHA }}
-          path: 'mihomo'
+      - id: compute_hash
+        name: 计算哈希值
+        run: |
+          # 构建源代码包下载 URL
+          DOWNLOAD_URL="https://codeload.github.com/metacubex/mihomo/tar.gz/v${VERSION}?"
+          echo "源代码包下载 URL: $DOWNLOAD_URL"
+          
+          # 下载源代码包
+          curl -L -o "mihomo-${VERSION}.tar.gz" "$DOWNLOAD_URL"
+          
+          # 计算哈希值
+          PKG_HASH=$(sha256sum "mihomo-${VERSION}.tar.gz" | cut -d ' ' -f 1)
+          echo "源代码包哈希值 (PKG_HASH): $PKG_HASH"
+          echo "PKG_HASH=$PKG_HASH" >> $GITHUB_ENV
+          
+          # 尝试下载预编译二进制文件（仅作为参考）
+          echo "========================================="
+          echo "尝试下载预编译二进制文件（仅供参考）..."
+          
+          # 定义要检查的架构
+          ARCHS=("arm64" "amd64" "386")
+          
+          for ARCH in "${ARCHS[@]}"; do
+            echo "检查架构: $ARCH"
+            # 尝试格式 1: 使用标签名称
+            DOWNLOAD_URL="https://github.com/MetaCubeX/mihomo/releases/download/${LATEST_TAG}/mihomo-linux-${ARCH}-${LATEST_TAG}.gz"
+            echo "尝试 URL: $DOWNLOAD_URL"
+            if curl -s -I "$DOWNLOAD_URL" | grep -q "HTTP/2 200"; then
+              echo "找到文件，下载中..."
+              curl -L -o "mihomo-${ARCH}.gz" "$DOWNLOAD_URL"
+              BIN_CHECKSUM=$(sha256sum "mihomo-${ARCH}.gz" | cut -d ' ' -f 1)
+              echo "${ARCH} 二进制文件校验和: $BIN_CHECKSUM"
+            else
+              echo "未找到 ${ARCH} 的预编译文件"
+            fi
+          done
+          
+          echo "========================================="
       
       - id: info
-        name: 收集信息
+        name: 输出信息
         run: |
-          echo "commit_date=${{ env.COMMIT_DATE }}" >> $GITHUB_OUTPUT
-          echo "commit_sha=${{ env.COMMIT_SHA }}" >> $GITHUB_OUTPUT
-          echo "short_commit_sha=$(echo ${{ env.COMMIT_SHA }} | cut -c1-7)" >> $GITHUB_OUTPUT
+          echo "version=${{ env.VERSION }}" >> $GITHUB_OUTPUT
+          echo "hash=${{ env.PKG_HASH }}" >> $GITHUB_OUTPUT
           echo "tag_name=${{ env.LATEST_TAG }}" >> $GITHUB_OUTPUT
-          
-          # 下载 release 二进制文件并计算校验和
-          # 尝试多种可能的下载 URL 格式
-          download_success=false
-          
-          # 尝试格式 1: 使用标签名称
-          DOWNLOAD_URL="https://github.com/MetaCubeX/mihomo/releases/download/${LATEST_TAG}/mihomo-linux-arm64-${LATEST_TAG}.gz"
-          echo "尝试下载 release 文件 (格式 1): $DOWNLOAD_URL"
-          if curl -s -I "$DOWNLOAD_URL" | grep -q "HTTP/2 200"; then
-            echo "找到发布文件，开始下载..."
-            curl -L -o "mihomo-release.gz" "$DOWNLOAD_URL"
-            RELEASE_CHECKSUM=$(sha256sum mihomo-release.gz | cut -d ' ' -f 1)
-            echo "release 文件校验和: $RELEASE_CHECKSUM"
-            echo "checksum=$RELEASE_CHECKSUM" >> $GITHUB_OUTPUT
-            download_success=true
-          fi
-          
-          # 尝试格式 2: 使用 latest
-          if [ "$download_success" = false ]; then
-            DOWNLOAD_URL="https://github.com/MetaCubeX/mihomo/releases/download/latest/mihomo-linux-arm64-${LATEST_TAG}.gz"
-            echo "尝试下载 release 文件 (格式 2): $DOWNLOAD_URL"
-            if curl -s -I "$DOWNLOAD_URL" | grep -q "HTTP/2 200"; then
-              echo "找到发布文件，开始下载..."
-              curl -L -o "mihomo-release.gz" "$DOWNLOAD_URL"
-              RELEASE_CHECKSUM=$(sha256sum mihomo-release.gz | cut -d ' ' -f 1)
-              echo "release 文件校验和: $RELEASE_CHECKSUM"
-              echo "checksum=$RELEASE_CHECKSUM" >> $GITHUB_OUTPUT
-              download_success=true
-            fi
-          fi
-          
-          # 尝试格式 3: 使用 'latest' 标签但无版本号
-          if [ "$download_success" = false ]; then
-            DOWNLOAD_URL="https://github.com/MetaCubeX/mihomo/releases/download/latest/mihomo-linux-arm64.gz"
-            echo "尝试下载 release 文件 (格式 3): $DOWNLOAD_URL"
-            if curl -s -I "$DOWNLOAD_URL" | grep -q "HTTP/2 200"; then
-              echo "找到发布文件，开始下载..."
-              curl -L -o "mihomo-release.gz" "$DOWNLOAD_URL"
-              RELEASE_CHECKSUM=$(sha256sum mihomo-release.gz | cut -d ' ' -f 1)
-              echo "release 文件校验和: $RELEASE_CHECKSUM"
-              echo "checksum=$RELEASE_CHECKSUM" >> $GITHUB_OUTPUT
-              download_success=true
-            fi
-          fi
-          
-          # 如果所有尝试都失败，则使用源代码打包方式
-          if [ "$download_success" = false ]; then
-            echo "发布文件不存在，尝试使用源代码打包方式..."
-            # 创建压缩包并计算校验和
-            git -C mihomo config tar.xz.command "xz -c"
-            git -C mihomo archive --output=mihomo.tar.xz HEAD
-            CHECKSUM=$(sha256sum mihomo.tar.xz | cut -d ' ' -f 1)
-            echo "源代码包校验和: $CHECKSUM"
-            echo "checksum=$CHECKSUM" >> $GITHUB_OUTPUT
-          fi
+          echo "release_date=${{ env.RELEASE_DATE }}" >> $GITHUB_OUTPUT
   update:
     needs:
       - get_current_info
       - get_latest_info
-    if: ${{ needs.get_current_info.outputs.pkg_source_version != needs.get_latest_info.outputs.commit_sha }}
+    if: ${{ needs.get_current_info.outputs.pkg_version != needs.get_latest_info.outputs.version }}
     runs-on: ubuntu-latest
     steps:
       - id: checkout
@@ -156,25 +130,26 @@ jobs:
           git branch -a
           
       - id: verify_hash
-        name: 验证校验和
+        name: 验证哈希值
         run: |
-          # 检查是否有校验和
-          if [ -z "${{ needs.get_latest_info.outputs.checksum }}" ]; then
-            echo "警告：未获取到校验和，将生成一个占位值"
-            echo "CHECKSUM=skip" >> $GITHUB_ENV
+          # 检查是否有哈希值
+          if [ -z "${{ needs.get_latest_info.outputs.hash }}" ]; then
+            echo "警告：未获取到哈希值，将中止更新"
+            exit 1
           else
-            echo "获取到校验和: ${{ needs.get_latest_info.outputs.checksum }}"
-            echo "CHECKSUM=${{ needs.get_latest_info.outputs.checksum }}" >> $GITHUB_ENV
+            echo "获取到哈希值: ${{ needs.get_latest_info.outputs.hash }}"
+            echo "HASH=${{ needs.get_latest_info.outputs.hash }}" >> $GITHUB_ENV
+            echo "VERSION=${{ needs.get_latest_info.outputs.version }}" >> $GITHUB_ENV
+            echo "RELEASE_DATE=${{ needs.get_latest_info.outputs.release_date }}" >> $GITHUB_ENV
           fi
           
       - id: update
         name: update
         run: |
+          # 更新 Makefile 中的版本号和哈希值
+          sed -i "s/PKG_VERSION:=.*/PKG_VERSION:=${{ env.VERSION }}/" OpenWrt-nikki/nikki/Makefile
           sed -i "s/PKG_RELEASE:=.*/PKG_RELEASE:=1/" OpenWrt-nikki/nikki/Makefile
-          sed -i "s/PKG_SOURCE_DATE:=.*/PKG_SOURCE_DATE:=${{ needs.get_latest_info.outputs.commit_date }}/" OpenWrt-nikki/nikki/Makefile
-          sed -i "s/PKG_SOURCE_VERSION:=.*/PKG_SOURCE_VERSION:=${{ needs.get_latest_info.outputs.commit_sha }}/" OpenWrt-nikki/nikki/Makefile
-          sed -i "s/PKG_MIRROR_HASH:=.*/PKG_MIRROR_HASH:=${{ env.CHECKSUM }}/" OpenWrt-nikki/nikki/Makefile
-          sed -i "s/PKG_BUILD_VERSION:=.*/PKG_BUILD_VERSION:=${{ needs.get_latest_info.outputs.tag_name }}/" OpenWrt-nikki/nikki/Makefile
+          sed -i "s/PKG_HASH:=.*/PKG_HASH:=${{ env.HASH }}/" OpenWrt-nikki/nikki/Makefile
           
       - id: create_pr
         name: 创建 PR
@@ -182,17 +157,17 @@ jobs:
           cd OpenWrt-nikki
           git checkout -b dependabot
           git add nikki/Makefile
-          git commit -m "build: update mihomo to ${{ needs.get_latest_info.outputs.tag_name }}"
+          git commit -m "build: update mihomo to v${{ env.VERSION }}"
           git push --force origin dependabot
           
           # 使用 GitHub CLI 创建 PR
-          gh pr create --title "build: update mihomo to ${{ needs.get_latest_info.outputs.tag_name }}" \
-                       --body "将 mihomo 更新到最新标签: ${{ needs.get_latest_info.outputs.tag_name }}
+          gh pr create --title "build: update mihomo to v${{ env.VERSION }}" \
+                       --body "将 mihomo 更新到最新版本: v${{ env.VERSION }}
           
-          提交: ${{ needs.get_latest_info.outputs.commit_sha }}
-          日期: ${{ needs.get_latest_info.outputs.commit_date }}
+          发布日期: ${{ env.RELEASE_DATE }}
+          源代码包哈希值: ${{ env.HASH }}
           
-          [更新日志](https://github.com/metacubex/mihomo/compare/${{ needs.get_current_info.outputs.pkg_source_version }}...${{  needs.get_latest_info.outputs.commit_sha }})" \
+          [发布详情](https://github.com/metacubex/mihomo/releases/tag/v${{ env.VERSION }})" \
                        --base main
         env:
           GITHUB_TOKEN: ${{ github.token }}
