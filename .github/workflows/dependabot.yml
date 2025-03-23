@@ -13,9 +13,10 @@ jobs:
   get_current_info:
     runs-on: ubuntu-latest
     outputs:
-      pkg_version: ${{ steps.info.outputs.pkg_version }}
-      pkg_hash: ${{ steps.info.outputs.pkg_hash }}
-      pkg_release: ${{ steps.info.outputs.pkg_release }}
+      pkg_source_version: ${{ steps.info.outputs.pkg_source_version }}
+      pkg_source_date: ${{ steps.info.outputs.pkg_source_date }}
+      pkg_mirror_hash: ${{ steps.info.outputs.pkg_mirror_hash }}
+      pkg_build_version: ${{ steps.info.outputs.pkg_build_version }}
     steps:
       - id: checkout
         name: checkout
@@ -27,57 +28,105 @@ jobs:
       - id: info
         name: info
         run: |
-          echo "pkg_version=$(grep "PKG_VERSION:=" OpenWrt-nikki/nikki/Makefile | cut -d '=' -f 2)" >> $GITHUB_OUTPUT
-          echo "pkg_hash=$(grep "PKG_HASH:=" OpenWrt-nikki/nikki/Makefile | cut -d '=' -f 2)" >> $GITHUB_OUTPUT
-          echo "pkg_release=$(grep "PKG_RELEASE:=" OpenWrt-nikki/nikki/Makefile | cut -d '=' -f 2)" >> $GITHUB_OUTPUT
+          echo "pkg_source_version=$(grep "PKG_SOURCE_VERSION:=" OpenWrt-nikki/nikki/Makefile | cut -d '=' -f 2)" >> $GITHUB_OUTPUT
+          echo "pkg_source_date=$(grep "PKG_SOURCE_DATE:=" OpenWrt-nikki/nikki/Makefile | cut -d '=' -f 2)" >> $GITHUB_OUTPUT
+          echo "pkg_mirror_hash=$(grep "PKG_MIRROR_HASH:=" OpenWrt-nikki/nikki/Makefile | cut -d '=' -f 2)" >> $GITHUB_OUTPUT
+          echo "pkg_build_version=$(grep "PKG_BUILD_VERSION:=" OpenWrt-nikki/nikki/Makefile | cut -d '=' -f 2)" >> $GITHUB_OUTPUT
   get_latest_info:
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.info.outputs.version }}
-      hash: ${{ steps.info.outputs.hash }}
+      commit_date: ${{ steps.info.outputs.commit_date }}
+      commit_sha: ${{ steps.info.outputs.commit_sha }}
+      short_commit_sha: ${{ steps.info.outputs.short_commit_sha }}
+      mirror_hash: ${{ steps.info.outputs.mirror_hash }}
       tag_name: ${{ steps.info.outputs.tag_name }}
-      release_date: ${{ steps.info.outputs.release_date }}
     steps:
       - id: fetch_latest_tag
-        name: 获取最新标签
+        name: 获取最新标签和提交信息
         run: |
-          # 获取最新标签名（去除版本号前缀的 v）
+          # 获取最新标签名
           LATEST_TAG=$(curl -s https://api.github.com/repos/MetaCubeX/mihomo/tags | jq -r '.[0].name')
           echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_ENV
           echo "获取到的最新标签: $LATEST_TAG"
           
-          # 提取版本号（去掉前缀 'v'）
-          VERSION=$(echo $LATEST_TAG | sed 's/^v//')
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "版本号: $VERSION"
+          # 获取标签引用详情
+          TAG_INFO=$(curl -s https://api.github.com/repos/MetaCubeX/mihomo/git/ref/tags/$LATEST_TAG)
+          COMMIT_SHA=$(echo $TAG_INFO | jq -r '.object.sha')
+          echo "COMMIT_SHA=$COMMIT_SHA" >> $GITHUB_ENV
+          echo "标签对应的提交 SHA: $COMMIT_SHA"
           
-          # 获取发布日期
-          RELEASE_INFO=$(curl -s https://api.github.com/repos/MetaCubeX/mihomo/releases/tags/$LATEST_TAG)
-          RELEASE_DATE=$(echo $RELEASE_INFO | jq -r '.published_at' | cut -d'T' -f1)
-          echo "RELEASE_DATE=$RELEASE_DATE" >> $GITHUB_ENV
-          echo "发布日期: $RELEASE_DATE"
+          # 获取短 SHA（前 7 位）
+          SHORT_SHA="${COMMIT_SHA:0:7}"
+          echo "SHORT_SHA=$SHORT_SHA" >> $GITHUB_ENV
+          echo "短 SHA: $SHORT_SHA"
+          
+          # 获取提交详情
+          COMMIT_INFO=$(curl -s https://api.github.com/repos/MetaCubeX/mihomo/commits/$COMMIT_SHA)
+          COMMIT_DATE=$(echo $COMMIT_INFO | jq -r '.commit.committer.date' | cut -d'T' -f1)
+          echo "COMMIT_DATE=$COMMIT_DATE" >> $GITHUB_ENV
+          echo "提交日期: $COMMIT_DATE"
+      
+      - id: checkout
+        name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          repository: 'MetaCubeX/mihomo'
+          ref: ${{ env.COMMIT_SHA }}
+          path: 'mihomo'
       
       - id: compute_hash
-        name: 计算哈希值
+        name: 计算镜像哈希
         run: |
-          # 构建源代码包下载 URL
-          DOWNLOAD_URL="https://codeload.github.com/metacubex/mihomo/tar.gz/v${VERSION}?"
-          echo "源代码包下载 URL: $DOWNLOAD_URL"
+          # 创建压缩包并计算校验和
+          git -C mihomo config tar.xz.command "xz -c"
+          git -C mihomo archive --output=mihomo.tar.xz HEAD
+          MIRROR_HASH=$(sha256sum mihomo.tar.xz | cut -d ' ' -f 1)
+          echo "源代码包哈希值 (MIRROR_HASH): $MIRROR_HASH"
+          echo "MIRROR_HASH=$MIRROR_HASH" >> $GITHUB_ENV
           
-          # 下载源代码包
-          curl -L -o "mihomo-${VERSION}.tar.gz" "$DOWNLOAD_URL"
-          
-          # 计算哈希值
-          PKG_HASH=$(sha256sum "mihomo-${VERSION}.tar.gz" | cut -d ' ' -f 1)
-          echo "源代码包哈希值 (PKG_HASH): $PKG_HASH"
-          echo "PKG_HASH=$PKG_HASH" >> $GITHUB_ENV
-          
-          # 尝试下载预编译二进制文件（仅作为参考）
+          # 尝试下载 latest 发布版本获取哈希值
           echo "========================================="
-          echo "尝试下载预编译二进制文件（仅供参考）..."
+          echo "尝试下载 latest 发布版二进制文件..."
           
           # 定义要检查的架构
           ARCHS=("arm64" "amd64" "386")
+          LATEST_SUCCESS=false
+          
+          for ARCH in "${ARCHS[@]}"; do
+            echo "检查架构: $ARCH"
+            
+            # 尝试从 latest 发布下载
+            LATEST_URL="https://github.com/MetaCubeX/mihomo/releases/download/latest/mihomo-linux-${ARCH}.gz"
+            echo "尝试下载 latest URL: $LATEST_URL"
+            
+            if curl -s -I "$LATEST_URL" | grep -q "HTTP/2 200"; then
+              echo "找到 latest 发布文件，下载中..."
+              curl -L -o "mihomo-latest-${ARCH}.gz" "$LATEST_URL"
+              LATEST_HASH=$(sha256sum "mihomo-latest-${ARCH}.gz" | cut -d ' ' -f 1)
+              echo "${ARCH} latest 发布文件校验和: $LATEST_HASH"
+              
+              # 将 arm64 架构的 latest 哈希值作为主要哈希值
+              if [ "$ARCH" = "arm64" ]; then
+                echo "使用 arm64 latest 发布文件的哈希值作为 LATEST_HASH"
+                echo "LATEST_HASH=$LATEST_HASH" >> $GITHUB_ENV
+                LATEST_SUCCESS=true
+              fi
+            else
+              echo "未找到 ${ARCH} 的 latest 发布文件"
+            fi
+          done
+          
+          # 如果找到了 latest 哈希值，优先使用它
+          if [ "$LATEST_SUCCESS" = true ]; then
+            echo "已找到 latest 发布文件哈希值，将优先使用此值"
+          else
+            echo "未找到 latest 发布文件，将使用源代码包哈希值"
+            echo "LATEST_HASH=$MIRROR_HASH" >> $GITHUB_ENV
+          fi
+          
+          # 作为参考，也尝试下载标签版本的预编译文件
+          echo "========================================="
+          echo "尝试下载标签版本预编译二进制文件（仅供参考）..."
           
           for ARCH in "${ARCHS[@]}"; do
             echo "检查架构: $ARCH"
@@ -99,26 +148,30 @@ jobs:
       - id: info
         name: 输出信息
         run: |
-          echo "version=${{ env.VERSION }}" >> $GITHUB_OUTPUT
-          echo "hash=${{ env.PKG_HASH }}" >> $GITHUB_OUTPUT
+          echo "commit_date=${{ env.COMMIT_DATE }}" >> $GITHUB_OUTPUT
+          echo "commit_sha=${{ env.COMMIT_SHA }}" >> $GITHUB_OUTPUT
+          echo "short_commit_sha=${{ env.SHORT_SHA }}" >> $GITHUB_OUTPUT
+          echo "mirror_hash=${{ env.MIRROR_HASH }}" >> $GITHUB_OUTPUT
+          echo "latest_hash=${{ env.LATEST_HASH }}" >> $GITHUB_OUTPUT
           echo "tag_name=${{ env.LATEST_TAG }}" >> $GITHUB_OUTPUT
-          echo "release_date=${{ env.RELEASE_DATE }}" >> $GITHUB_OUTPUT
   update:
     needs:
       - get_current_info
       - get_latest_info
-    if: ${{ needs.get_current_info.outputs.pkg_version != needs.get_latest_info.outputs.version }}
+    if: ${{ needs.get_current_info.outputs.pkg_source_version != needs.get_latest_info.outputs.commit_sha }}
     runs-on: ubuntu-latest
+    outputs:
+      latest_hash: ${{ needs.get_latest_info.outputs.latest_hash }}
     steps:
       - id: check_versions
         name: 检查版本信息
         run: |
-          echo "当前版本: ${{ needs.get_current_info.outputs.pkg_version }}"
-          echo "最新版本: ${{ needs.get_latest_info.outputs.version }}"
+          echo "当前版本: ${{ needs.get_current_info.outputs.pkg_source_version }}"
+          echo "最新版本: ${{ needs.get_latest_info.outputs.commit_sha }}"
           
           # 清理版本字符串（去除可能的空格和引号）
-          CURRENT_VERSION=$(echo "${{ needs.get_current_info.outputs.pkg_version }}" | tr -d ' "')
-          NEW_VERSION=$(echo "${{ needs.get_latest_info.outputs.version }}" | tr -d ' "')
+          CURRENT_VERSION=$(echo "${{ needs.get_current_info.outputs.pkg_source_version }}" | tr -d ' "')
+          NEW_VERSION=$(echo "${{ needs.get_latest_info.outputs.commit_sha }}" | tr -d ' "')
           
           echo "清理后的当前版本: $CURRENT_VERSION"
           echo "清理后的最新版本: $NEW_VERSION"
@@ -152,16 +205,19 @@ jobs:
       - id: verify_hash
         name: 验证哈希值
         run: |
-          # 检查是否有哈希值
-          if [ -z "${{ needs.get_latest_info.outputs.hash }}" ]; then
-            echo "警告：未获取到哈希值，将中止更新"
-            exit 1
+          # 检查是否有 latest 哈希值
+          if [ -z "${{ needs.get_latest_info.outputs.latest_hash }}" ]; then
+            echo "警告：未获取到 latest 哈希值，将使用镜像哈希值"
+            echo "HASH_TO_USE=${{ needs.get_latest_info.outputs.mirror_hash }}" >> $GITHUB_ENV
           else
-            echo "获取到哈希值: ${{ needs.get_latest_info.outputs.hash }}"
-            echo "HASH=${{ needs.get_latest_info.outputs.hash }}" >> $GITHUB_ENV
-            echo "VERSION=${{ needs.get_latest_info.outputs.version }}" >> $GITHUB_ENV
-            echo "RELEASE_DATE=${{ needs.get_latest_info.outputs.release_date }}" >> $GITHUB_ENV
+            echo "获取到 latest 哈希值: ${{ needs.get_latest_info.outputs.latest_hash }}"
+            echo "HASH_TO_USE=${{ needs.get_latest_info.outputs.latest_hash }}" >> $GITHUB_ENV
           fi
+          
+          echo "COMMIT_SHA=${{ needs.get_latest_info.outputs.commit_sha }}" >> $GITHUB_ENV
+          echo "COMMIT_DATE=${{ needs.get_latest_info.outputs.commit_date }}" >> $GITHUB_ENV
+          echo "SHORT_SHA=${{ needs.get_latest_info.outputs.short_commit_sha }}" >> $GITHUB_ENV
+          echo "TAG_NAME=${{ needs.get_latest_info.outputs.tag_name }}" >> $GITHUB_ENV
           
       - id: update
         name: update
@@ -171,29 +227,28 @@ jobs:
           cat OpenWrt-nikki/nikki/Makefile
           
           # 检查 Makefile 文件是否存在并且包含必要的字段
-          if ! grep -q "PKG_VERSION:=" OpenWrt-nikki/nikki/Makefile; then
-            echo "错误: Makefile 中未找到 PKG_VERSION 字段，请检查文件路径和内容"
+          if ! grep -q "PKG_SOURCE_VERSION:=" OpenWrt-nikki/nikki/Makefile; then
+            echo "错误: Makefile 中未找到 PKG_SOURCE_VERSION 字段，请检查文件路径和内容"
             cat OpenWrt-nikki/nikki/Makefile
             exit 1
           fi
           
           # 更新 Makefile 中的版本号和哈希值（使用更安全的替换方式）
-          sed -i '/PKG_VERSION:=/c\PKG_VERSION:=${{ env.VERSION }}' OpenWrt-nikki/nikki/Makefile
+          sed -i '/PKG_SOURCE_VERSION:=/c\PKG_SOURCE_VERSION:=${{ env.COMMIT_SHA }}' OpenWrt-nikki/nikki/Makefile
+          sed -i '/PKG_SOURCE_DATE:=/c\PKG_SOURCE_DATE:=${{ env.COMMIT_DATE }}' OpenWrt-nikki/nikki/Makefile
+          sed -i '/PKG_MIRROR_HASH:=/c\PKG_MIRROR_HASH:=${{ env.HASH_TO_USE }}' OpenWrt-nikki/nikki/Makefile
           sed -i '/PKG_RELEASE:=/c\PKG_RELEASE:=1' OpenWrt-nikki/nikki/Makefile
           
-          # 根据 Makefile 格式动态处理 PKG_HASH 字段
-          if grep -q "PKG_HASH:=" OpenWrt-nikki/nikki/Makefile; then
-            sed -i '/PKG_HASH:=/c\PKG_HASH:=${{ env.HASH }}' OpenWrt-nikki/nikki/Makefile
-          else
-            # 如果使用的是 PKG_SOURCE_HASH 或其他变体
-            field_name=$(grep -E "PKG_.*HASH:=" OpenWrt-nikki/nikki/Makefile | head -1 | cut -d':' -f1)
-            if [ -n "$field_name" ]; then
-              echo "找到替代哈希字段: $field_name"
-              sed -i "/${field_name}:=/c\\${field_name}:=${{ env.HASH }}" OpenWrt-nikki/nikki/Makefile
+          # 如果存在 PKG_BUILD_VERSION 字段，则更新
+          if grep -q "PKG_BUILD_VERSION:=" OpenWrt-nikki/nikki/Makefile; then
+            # 根据标签或使用 alpha-SHORT_SHA 格式更新
+            if [[ "${{ env.TAG_NAME }}" == v* ]]; then
+              # 使用标签中的版本号
+              VERSION=$(echo ${{ env.TAG_NAME }} | sed 's/^v//')
+              sed -i '/PKG_BUILD_VERSION:=/c\PKG_BUILD_VERSION:='$VERSION OpenWrt-nikki/nikki/Makefile
             else
-              echo "警告: 未找到哈希字段，将添加 PKG_HASH 字段"
-              # 在 PKG_VERSION 行之后添加 PKG_HASH
-              sed -i "/PKG_VERSION:=/a PKG_HASH:=${{ env.HASH }}" OpenWrt-nikki/nikki/Makefile
+              # 使用 alpha-SHORT_SHA 格式
+              sed -i '/PKG_BUILD_VERSION:=/c\PKG_BUILD_VERSION:=alpha-${{ env.SHORT_SHA }}' OpenWrt-nikki/nikki/Makefile
             fi
           fi
           
@@ -225,23 +280,24 @@ jobs:
           git diff --cached
           
           # 提交变更（允许空提交以便工作流继续）
-          git commit -m "build: update mihomo to v${{ env.VERSION }}" || echo "没有变更可提交，但继续执行"
+          git commit -m "build: update mihomo to v${{ env.TAG_NAME }}" || echo "没有变更可提交，但继续执行"
           
           # 推送分支
           git push --force origin dependabot
           
           # 检查是否已有相同主题的 PR
-          if gh pr list --state open --base main | grep -q "update mihomo to v${{ env.VERSION }}"; then
-            echo "已存在更新到 v${{ env.VERSION }} 的 PR，跳过创建新 PR"
+          if gh pr list --state open --base main | grep -q "update mihomo to v${{ env.TAG_NAME }}"; then
+            echo "已存在更新到 v${{ env.TAG_NAME }} 的 PR，跳过创建新 PR"
           else
             # 使用 GitHub CLI 创建 PR
-            gh pr create --title "build: update mihomo to v${{ env.VERSION }}" \
-                         --body "将 mihomo 更新到最新版本: v${{ env.VERSION }}
+            gh pr create --title "build: update mihomo to v${{ env.TAG_NAME }}" \
+                         --body "将 mihomo 更新到最新版本: v${{ env.TAG_NAME }}
             
-            发布日期: ${{ env.RELEASE_DATE }}
-            源代码包哈希值: ${{ env.HASH }}
+            提交日期: ${{ env.COMMIT_DATE }}
+            哈希值: ${{ env.HASH_TO_USE }}
+            哈希来源: $([ "${{ needs.get_latest_info.outputs.latest_hash }}" = "${{ env.HASH_TO_USE }}" ] && echo "latest 发布" || echo "源代码包")
             
-            [发布详情](https://github.com/metacubex/mihomo/releases/tag/v${{ env.VERSION }})" \
+            [发布详情](https://github.com/metacubex/mihomo/releases/tag/v${{ env.TAG_NAME }})" \
                          --base main || echo "创建 PR 失败，可能已存在"
           fi
         env:
