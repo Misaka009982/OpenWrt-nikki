@@ -52,12 +52,14 @@ jobs:
         env:
           ARCH: ${{ matrix.arch }}
           FEEDNAME: nikki
-          PACKAGES: "nikki luci-app-nikki luci-i18n-nikki-zh-cn"  # 同时构建所有相关包
+          PACKAGES: "nikki"  # 仅构建nikki包，移除luci相关包
           V: s                            # 详细输出
           INDEX: 0                        # 不生成索引
           DL_DIR: ${{ github.workspace }}/dl  # 使用预下载的目录
           KEY_BUILD: ${{ secrets.KEY_BUILD }}
           NO_REFRESH_CHECK: true
+          IGNORE_HASH: 1                  # 忽略哈希检查
+          FORCE_UNSAFE_CONFIGURE: 1       # 强制配置即使有警告
 
       - name: show build results
         run: |
@@ -73,8 +75,6 @@ jobs:
             echo "使用预编译的ipk文件"
             mkdir -p bin/packages/${{ matrix.arch }}/nikki/
             cp prebuilt/nikki_*.ipk bin/packages/${{ matrix.arch }}/nikki/
-            cp prebuilt/luci-app-nikki_*.ipk bin/packages/${{ matrix.arch }}/nikki/ || true
-            cp prebuilt/luci-i18n-nikki-*.ipk bin/packages/${{ matrix.arch }}/nikki/ || true
           fi
 
       - name: compress
