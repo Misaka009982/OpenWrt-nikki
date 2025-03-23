@@ -1,87 +1,104 @@
 name: dependabot
+
 on:
   schedule:
-    - cron: "0 0 * * *"  # 每天 UTC 时间 0 点运行
-  workflow_dispatch:     # 允许手动触发
+    - cron: "0 0 * * *"
+  workflow_dispatch:
 
 jobs:
   get_current_info:
-    # 保持不变...
     runs-on: ubuntu-latest
     outputs:
       pkg_source_version: ${{ steps.info.outputs.pkg_source_version }}
       pkg_mirror_hash: ${{ steps.info.outputs.pkg_mirror_hash }}
       pkg_build_version: ${{ steps.info.outputs.pkg_build_version }}
-      pkg_source_date: ${{ steps.info.outputs.pkg_source_date }}
     steps:
-      # 保持不变...
-
-  get_latest_info:
-    # 保持不变...
-    runs-on: ubuntu-latest
-    outputs:
-      latest_tag: ${{ steps.get_tag.outputs.tag }}
-      commit_sha: ${{ steps.get_commit.outputs.sha }}
-      checksum: ${{ steps.checksum.outputs.value }}
-    steps:
-      # 保持不变...
-
-  update:
-    needs: [get_current_info, get_latest_info]
-    # 修改条件：版本号不同 或 commit哈希不同 或 校验和不同
-    if: |
-      needs.get_current_info.outputs.pkg_build_version != needs.get_latest_info.outputs.latest_tag ||
-      needs.get_current_info.outputs.pkg_source_version != needs.get_latest_info.outputs.commit_sha ||
-      needs.get_current_info.outputs.pkg_mirror_hash != needs.get_latest_info.outputs.checksum
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout OpenWrt-nikki
+      - id: checkout
+        name: checkout
         uses: actions/checkout@v4
         with:
           repository: Misaka009982/OpenWrt-nikki
           ref: main
           path: OpenWrt-nikki
-          fetch-depth: 0  # 获取所有历史记录
-
-      - name: Update Makefile
+      - id: info
+        name: info
         run: |
-          cd OpenWrt-nikki/nikki
-          
-          # 获取当前日期（UTC）
-          CURRENT_DATE=$(date -u +%Y-%m-%d)
-          
-          # 显示更新前的内容
-          echo "更新前的Makefile信息:"
-          grep -E 'PKG_SOURCE_VERSION|PKG_MIRROR_HASH|PKG_BUILD_VERSION|PKG_SOURCE_DATE' Makefile
-          
-          # 更新Makefile，使用commit哈希替代版本号
-          sed -i "s|PKG_SOURCE_VERSION:=.*|PKG_SOURCE_VERSION:=${{ needs.get_latest_info.outputs.commit_sha }}|" Makefile
-          sed -i "s|PKG_MIRROR_HASH:=.*|PKG_MIRROR_HASH:=${{ needs.get_latest_info.outputs.checksum }}|" Makefile
-          sed -i "s|PKG_BUILD_VERSION:=.*|PKG_BUILD_VERSION:=${{ needs.get_latest_info.outputs.latest_tag }}|" Makefile
-          sed -i "s|PKG_SOURCE_DATE:=.*|PKG_SOURCE_DATE:=${CURRENT_DATE}|" Makefile
-          
-          # 显示更新后的内容
-          echo "更新后的Makefile信息:"
-          grep -E 'PKG_SOURCE_VERSION|PKG_MIRROR_HASH|PKG_BUILD_VERSION|PKG_SOURCE_DATE' Makefile
+          echo "pkg_source_version=$(grep "PKG_SOURCE_VERSION:=" OpenWrt-nikki/nikki/Makefile | cut -d '=' -f 2)" >> $GITHUB_OUTPUT
+          echo "pkg_mirror_hash=$(grep "PKG_MIRROR_HASH:=" OpenWrt-nikki/nikki/Makefile | cut -d '=' -f 2)" >> $GITHUB_OUTPUT
+          echo "pkg_build_version=$(grep "PKG_BUILD_VERSION:=" OpenWrt-nikki/nikki/Makefile | cut -d '=' -f 2)" >> $GITHUB_OUTPUT
 
-      - name: Create Pull Request
+  get_latest_info:
+    runs-on: ubuntu-latest
+    outputs:
+      latest_tag: ${{ steps.get_tag.outputs.tag }}
+      commit_date: ${{ steps.info.outputs.commit_date }}
+      commit_sha: ${{ steps.info.outputs.commit_sha }}
+      short_commit_sha: ${{ steps.info.outputs.short_commit_sha }}
+      checksum: ${{ steps.info.outputs.checksum }}
+    steps:
+      - id: get_tag
+        name: 获取最新发布版本
+        run: |
+          LATEST_TAG=$(curl -sL https://api.github.com/repos/MetaCubeX/mihomo/releases/latest | jq -r '.tag_name')
+          echo "最新版本: $LATEST_TAG"
+          echo "tag=$LATEST_TAG" >> $GITHUB_OUTPUT
+
+      - id: checkout
+        name: checkout
+        uses: actions/checkout@v4
+        with:
+          repository: 'MetaCubeX/mihomo'
+          ref: ${{ steps.get_tag.outputs.tag }}  # 使用最新发布版本的标签
+          path: 'mihomo'
+          
+      - id: info
+        name: info
+        run: |
+          echo "commit_date=$(git -C mihomo log -n 1 --format=%cs)" >> $GITHUB_OUTPUT
+          echo "commit_sha=$(git -C mihomo rev-parse HEAD)" >> $GITHUB_OUTPUT
+          echo "short_commit_sha=$(git -C mihomo rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          git -C mihomo config tar.xz.command "xz -c"
+          git -C mihomo archive --output=mihomo.tar.xz HEAD
+          echo "checksum=$(sha256sum mihomo.tar.xz | cut -d ' ' -f 1)" >> $GITHUB_OUTPUT
+          
+  update:
+    needs:
+      - get_current_info
+      - get_latest_info
+    if: ${{ needs.get_current_info.outputs.pkg_source_version != needs.get_latest_info.outputs.commit_sha }}
+    runs-on: ubuntu-latest
+    steps:
+      - id: checkout
+        name: checkout
+        uses: actions/checkout@v4
+        with:
+          repository: Misaka009982/OpenWrt-nikki
+          ref: main
+          path: OpenWrt-nikki
+          
+      - id: update
+        name: update
+        run: |
+          sed -i "s/PKG_RELEASE:=.*/PKG_RELEASE:=1/" OpenWrt-nikki/nikki/Makefile
+          sed -i "s/PKG_SOURCE_DATE:=.*/PKG_SOURCE_DATE:=${{ needs.get_latest_info.outputs.commit_date }}/" OpenWrt-nikki/nikki/Makefile
+          sed -i "s/PKG_SOURCE_VERSION:=.*/PKG_SOURCE_VERSION:=${{ needs.get_latest_info.outputs.commit_sha }}/" OpenWrt-nikki/nikki/Makefile
+          sed -i "s/PKG_MIRROR_HASH:=.*/PKG_MIRROR_HASH:=${{ needs.get_latest_info.outputs.checksum }}/" OpenWrt-nikki/nikki/Makefile
+          sed -i "s/PKG_BUILD_VERSION:=.*/PKG_BUILD_VERSION:=${{ needs.get_latest_info.outputs.latest_tag }}/" OpenWrt-nikki/nikki/Makefile
+          
+      - id: pr
+        name: pr
         uses: peter-evans/create-pull-request@v6
         with:
           path: OpenWrt-nikki
-          token: ${{ secrets.GITHUB_TOKEN }}
-          base: main                  # 明确指定基础分支为main
-          branch: dependabot   # 简化分支名
-          delete-branch: true
+          branch: dependabot
           commit-message: "build: update mihomo to ${{ needs.get_latest_info.outputs.latest_tag }}"
           title: "build: update mihomo to ${{ needs.get_latest_info.outputs.latest_tag }}"
           body: |
-            # mihomo 更新到 ${{ needs.get_latest_info.outputs.latest_tag }}
+            # 更新mihomo到最新发布版本 ${{ needs.get_latest_info.outputs.latest_tag }}
             
             ## 更新信息
-            - 版本: ${{ needs.get_current_info.outputs.pkg_build_version }} → ${{ needs.get_latest_info.outputs.latest_tag }}
             - 提交: ${{ needs.get_current_info.outputs.pkg_source_version }} → ${{ needs.get_latest_info.outputs.commit_sha }}
-            - 校验和: ${{ needs.get_current_info.outputs.pkg_mirror_hash }} → ${{ needs.get_latest_info.outputs.checksum }}
-            - 日期: ${{ needs.get_current_info.outputs.pkg_source_date }} → 当前日期
+            - 日期: ${{ needs.get_latest_info.outputs.commit_date }}
             
             ## 变更日志
             [查看完整变更](https://github.com/metacubex/mihomo/compare/${{ needs.get_current_info.outputs.pkg_source_version }}...${{ needs.get_latest_info.outputs.commit_sha }})
