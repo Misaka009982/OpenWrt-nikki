@@ -39,12 +39,6 @@ jobs:
           echo "date=$DATE" >> $GITHUB_OUTPUT
           echo "tag_name=Nikki-$VERSION" >> $GITHUB_OUTPUT
           echo "file_name=nikki-${DATE}~${VERSION}" >> $GITHUB_OUTPUT
-          
-          # 显示提取的信息
-          echo "版本: $VERSION"
-          echo "日期: $DATE"
-          echo "标签名: Nikki-$VERSION"
-          echo "文件名前缀: nikki-${DATE}~${VERSION}"
 
       # 确保feed结构正确
       - name: setup feed structure
@@ -58,19 +52,6 @@ jobs:
             echo "错误: nikki/Makefile文件未找到!"
             exit 1
           fi
-          
-          # 显示nikki的Makefile内容
-          echo "nikki/Makefile内容:"
-          cat nikki/Makefile
-          
-          # 检查files目录
-          if [ ! -d "nikki/files" ]; then
-            echo "警告: nikki/files目录未找到!"
-            exit 1
-          else
-            echo "files目录内容:"
-            ls -la nikki/files/
-          fi
 
       # 预下载nikki源码
       - name: pre-download nikki source
@@ -79,22 +60,21 @@ jobs:
           mkdir -p dl
           curl -L -o dl/nikki-latest.tar.gz https://github.com/MetaCubeX/mihomo/archive/refs/heads/Dev.tar.gz || echo "预下载源码失败，将由SDK自动处理"
 
-      # 构建步骤
+      # 构建步骤 - 移除KEY_BUILD环境变量
       - name: build packages
         uses: openwrt/gh-action-sdk@main
         env:
           ARCH: ${{ matrix.arch }}
           FEEDNAME: nikki
           PACKAGES: "nikki"
-          V: 99  # 详细输出
-          INDEX: 1  # 生成索引
+          V: 99
+          INDEX: 1
           DL_DIR: ${{ github.workspace }}/dl
-          KEY_BUILD: ${{ secrets.KEY_BUILD }}
           NO_REFRESH_CHECK: true
           IGNORE_HASH: 1
           FORCE_UNSAFE_CONFIGURE: 1
 
-      # 检查构建结果并重命名文件
+      # 处理构建结果和文件名
       - name: process build results
         run: |
           echo "构建结果:"
@@ -126,14 +106,6 @@ jobs:
           # 检查最终文件
           echo "最终输出文件:"
           find output -type f | sort
-          
-          # 生成符号链接 (便于固定文件名引用)
-          cd output/${{ matrix.branch }}/${{ matrix.arch }}/
-          ln -sf "${{ steps.version.outputs.file_name }}_${{ matrix.arch }}.ipk" "nikki_latest_${{ matrix.arch }}.ipk"
-          cd -
-          
-          # 显示文件大小
-          ls -lh output/${{ matrix.branch }}/${{ matrix.arch }}/*.ipk
 
       # 发布到GitHub Releases
       - name: release
@@ -156,7 +128,7 @@ jobs:
           name: nikki_${{ matrix.arch }}_${{ matrix.branch }}
           path: output/${{ matrix.branch }}/${{ matrix.arch }}/*.ipk
           
-  # 生成feed索引
+  # 生成feed索引 - 移除签名步骤
   feed:
     needs: release
     name: generate feed
@@ -170,10 +142,6 @@ jobs:
           
       - name: organize feed structure
         run: |
-          # 查看下载的文件
-          echo "下载的构建产物:"
-          find public -type f | sort
-          
           # 创建feeds目录结构
           mkdir -p public/feeds/nikki
           
@@ -191,26 +159,20 @@ jobs:
           dpkg-scanpackages . > Packages
           gzip -c Packages > Packages.gz
           
-          # 查看生成的索引
-          echo "生成的索引文件大小:"
-          ls -lh Packages*
-          
-          echo "索引内容预览:"
-          head -n 20 Packages
+          # 添加安装说明
+          echo "# Nikki OpenWRT Package Feed" > README.md
+          echo "## 安装说明" >> README.md
+          echo "由于这些包没有签名，安装时需要使用以下命令：" >> README.md
+          echo '```bash' >> README.md
+          echo "opkg update" >> README.md
+          echo "opkg install --force-unsigned 包名.ipk" >> README.md
+          echo '```' >> README.md
 
-      - name: sign packages
-        run: |
-          if [ -n "${{ secrets.KEY_BUILD_PUB }}" ]; then
-            echo "${{ secrets.KEY_BUILD_PUB }}" > public/feeds/nikki/key-build.pub
-            echo "已添加密钥文件"
-          else
-            echo "警告: 未提供KEY_BUILD_PUB密钥"
-          fi
-
+      # 部署feed - 不包含密钥
       - name: deploy feed
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./public
           force_orphan: true
-          commit_message: "release: Nikki ${{ github.ref_name }}"
+          commit_message: "release: Nikki ${{ github.ref_name }} (unsigned)"
