@@ -58,47 +58,55 @@ jobs:
           echo "short_commit_sha=$(git -C mihomo rev-parse --short HEAD)" >> $GITHUB_OUTPUT
           
   get_openwrt_hash:
-    runs-on: ubuntu-latest
-    needs: get_latest_info
-    outputs:
-      openwrt_hash: ${{ steps.get_hash.outputs.hash }}
-    steps:
-      - id: checkout
-        name: checkout
-        uses: actions/checkout@v4
-        with:
-          repository: 'MetaCubeX/mihomo'
-          ref: ${{ needs.get_latest_info.outputs.commit_sha }}
-          fetch-depth: 0
-      
-      - id: get_hash
-        name: 获取OpenWrt格式的哈希值
-        run: |
-          # 安装必要的工具
-          sudo apt-get update
-          sudo apt-get install -y zstd
+      runs-on: ubuntu-latest
+      needs: get_latest_info
+      outputs:
+        openwrt_hash: ${{ steps.get_hash.outputs.hash }}
+      steps:
+        - id: checkout
+          name: checkout
+          uses: actions/checkout@v4
+          with:
+            repository: 'MetaCubeX/mihomo'
+            ref: ${{ needs.get_latest_info.outputs.commit_sha }}
+            fetch-depth: 0
     
-          # 获取commit_date参数，确保与Makefile一致
-          COMMIT_DATE="${{ needs.get_latest_info.outputs.commit_date }}"
-          # 将日期格式从YYYY-MM-DD转换为YYYY.MM.DD
-          FORMATTED_DATE=$(echo $COMMIT_DATE | tr '-' '.')
+        - id: get_hash
+          name: 获取OpenWrt格式的哈希值
+          run: |
+            # 安装必要的工具
+            sudo apt-get update
+            sudo apt-get install -y zstd
+        
+            # 使用与OpenWrt相同的参数生成tar.zst
+            COMMIT_DATE="${{ needs.get_latest_info.outputs.commit_date }}"
+            # 将日期格式从YYYY-MM-DD转换为YYYY.MM.DD
+            FORMATTED_DATE=$(echo $COMMIT_DATE | tr '-' '.')
+        
+            REF=$(git rev-parse HEAD)
+            SHORT_REF=$(git rev-parse --short HEAD)
+        
+            echo "使用日期: $FORMATTED_DATE"
+            echo "使用提交: $SHORT_REF"
+        
+            # 使用'nikki-'前缀而不是'mihomo-'
+            git archive --format=tar --prefix="nikki-$REF/" $REF | zstd -z -T0 > nikki-$FORMATTED_DATE~$SHORT_REF.tar.zst
+        
+            # 计算哈希值
+            HASH=$(sha256sum nikki-$FORMATTED_DATE~$SHORT_REF.tar.zst | cut -d ' ' -f 1)
+            echo "OpenWrt格式哈希值: $HASH"
+            echo "hash=$HASH" >> $GITHUB_OUTPUT
+        
+            # 显示文件信息
+            ls -lh nikki-$FORMATTED_DATE~$SHORT_REF.tar.zst
     
-          REF=$(git rev-parse HEAD)
-          SHORT_REF=$(git rev-parse --short HEAD)
+              # 计算哈希值
+              HASH=$(sha256sum mihomo-$FORMATTED_DATE~$SHORT_REF.tar.zst | cut -d ' ' -f 1)
+              echo "OpenWrt格式哈希值: $HASH"
+              echo "hash=$HASH" >> $GITHUB_OUTPUT
     
-          echo "使用日期: $FORMATTED_DATE"
-          echo "使用提交: $SHORT_REF"
-    
-          # 创建tar.zst文件并计算哈希值
-          git archive --prefix=mihomo-$REF/ $REF | zstd -T0 > mihomo-$FORMATTED_DATE~$SHORT_REF.tar.zst
-    
-          # 计算哈希值
-          HASH=$(sha256sum mihomo-$FORMATTED_DATE~$SHORT_REF.tar.zst | cut -d ' ' -f 1)
-          echo "OpenWrt格式哈希值: $HASH"
-          echo "hash=$HASH" >> $GITHUB_OUTPUT
-    
-          # 显示文件信息
-          ls -lh mihomo-$FORMATTED_DATE~$SHORT_REF.tar.zst
+              # 显示文件信息
+              ls -lh mihomo-$FORMATTED_DATE~$SHORT_REF.tar.zst
           
   update:
     needs:
