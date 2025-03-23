@@ -21,22 +21,55 @@ jobs:
       - name: checkout
         uses: actions/checkout@v4
 
-      # 创建正确的feed目录结构
+      # 提取版本信息，用于生成文件名和标签
+      - name: extract version info
+        id: version
+        run: |
+          # 从Makefile中提取版本信息
+          VERSION=$(grep "PKG_BUILD_VERSION:=" nikki/Makefile | cut -d'=' -f2)
+          DATE=$(grep "PKG_SOURCE_DATE:=" nikki/Makefile | cut -d'=' -f2)
+          # 移除引号
+          VERSION=$(echo $VERSION | tr -d '"' | tr -d "'")
+          DATE=$(echo $DATE | tr -d '"' | tr -d "'")
+          
+          echo "版本信息: VERSION=$VERSION, DATE=$DATE"
+          
+          # 设置输出变量
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "date=$DATE" >> $GITHUB_OUTPUT
+          echo "tag_name=Nikki-$VERSION" >> $GITHUB_OUTPUT
+          echo "file_name=nikki-${DATE}~${VERSION}" >> $GITHUB_OUTPUT
+          
+          # 显示提取的信息
+          echo "版本: $VERSION"
+          echo "日期: $DATE"
+          echo "标签名: Nikki-$VERSION"
+          echo "文件名前缀: nikki-${DATE}~${VERSION}"
+
+      # 确保feed结构正确
       - name: setup feed structure
         run: |
-          # 查看当前文件结构
-          ls -la
+          # 显示当前目录结构
+          echo "当前目录结构:"
+          find . -type d | sort
           
           # 确保nikki的Makefile存在
           if [ ! -f "nikki/Makefile" ]; then
-            echo "警告: nikki/Makefile文件未找到!"
-            mkdir -p nikki
+            echo "错误: nikki/Makefile文件未找到!"
+            exit 1
           fi
           
           # 显示nikki的Makefile内容
-          if [ -f "nikki/Makefile" ]; then
-            echo "nikki/Makefile内容:"
-            cat nikki/Makefile
+          echo "nikki/Makefile内容:"
+          cat nikki/Makefile
+          
+          # 检查files目录
+          if [ ! -d "nikki/files" ]; then
+            echo "警告: nikki/files目录未找到!"
+            exit 1
+          else
+            echo "files目录内容:"
+            ls -la nikki/files/
           fi
 
       # 预下载nikki源码
@@ -52,16 +85,17 @@ jobs:
         env:
           ARCH: ${{ matrix.arch }}
           FEEDNAME: nikki
-          PACKAGES: "nikki"  # 仅构建nikki包，移除luci相关包
-          V: s                            # 详细输出
-          INDEX: 0                        # 不生成索引
-          DL_DIR: ${{ github.workspace }}/dl  # 使用预下载的目录
+          PACKAGES: "nikki"
+          V: 99  # 详细输出
+          INDEX: 1  # 生成索引
+          DL_DIR: ${{ github.workspace }}/dl
           KEY_BUILD: ${{ secrets.KEY_BUILD }}
           NO_REFRESH_CHECK: true
-          IGNORE_HASH: 1                  # 忽略哈希检查
-          FORCE_UNSAFE_CONFIGURE: 1       # 强制配置即使有警告
+          IGNORE_HASH: 1
+          FORCE_UNSAFE_CONFIGURE: 1
 
-      - name: show build results
+      # 检查构建结果并重命名文件
+      - name: process build results
         run: |
           echo "构建结果:"
           find bin -type f -name "*.ipk" | sort
@@ -70,71 +104,113 @@ jobs:
           IPK_COUNT=$(find bin -type f -name "*.ipk" | wc -l)
           echo "找到 $IPK_COUNT 个ipk文件"
           
-          # 如果没有生成ipk，则使用预编译的ipk作为备选
-          if [ "$IPK_COUNT" -eq 0 ] && [ -f "prebuilt/nikki_*.ipk" ]; then
-            echo "使用预编译的ipk文件"
-            mkdir -p bin/packages/${{ matrix.arch }}/nikki/
-            cp prebuilt/nikki_*.ipk bin/packages/${{ matrix.arch }}/nikki/
+          if [ "$IPK_COUNT" -eq 0 ]; then
+            echo "错误: 没有找到任何IPK文件!"
+            exit 1
           fi
-
-      - name: compress
-        run: |
+          
           # 创建输出目录
-          mkdir -p public/${{ matrix.branch }}/${{ matrix.arch }}
+          mkdir -p output/${{ matrix.branch }}/${{ matrix.arch }}
           
-          # 如果有生成的包，移动它们
-          if [ -d "bin/packages/${{ matrix.arch }}/nikki" ]; then
-            cp -r bin/packages/${{ matrix.arch }}/nikki/* public/${{ matrix.branch }}/${{ matrix.arch }}/ || echo "无法复制包文件"
-          fi
+          # 重命名并复制IPK文件
+          for ipk in $(find bin -name "nikki_*.ipk"); do
+            # 获取原始文件名
+            filename=$(basename "$ipk")
+            # 创建新文件名
+            new_filename="${{ steps.version.outputs.file_name }}_${{ matrix.arch }}.ipk"
+            echo "重命名: $filename -> $new_filename"
+            # 复制并重命名
+            cp "$ipk" "output/${{ matrix.branch }}/${{ matrix.arch }}/$new_filename"
+          done
           
-          # 创建压缩文件
-          tar -czf nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz -C public/${{ matrix.branch }}/${{ matrix.arch }} . || echo "创建tar.gz失败"
-          tar -czf feed_nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz public/ || echo "创建feed tar.gz失败"
+          # 检查最终文件
+          echo "最终输出文件:"
+          find output -type f | sort
           
-          # 显示创建的文件大小
-          ls -lh *.tar.gz
+          # 生成符号链接 (便于固定文件名引用)
+          cd output/${{ matrix.branch }}/${{ matrix.arch }}/
+          ln -sf "${{ steps.version.outputs.file_name }}_${{ matrix.arch }}.ipk" "nikki_latest_${{ matrix.arch }}.ipk"
+          cd -
+          
+          # 显示文件大小
+          ls -lh output/${{ matrix.branch }}/${{ matrix.arch }}/*.ipk
 
+      # 发布到GitHub Releases
       - name: release
         uses: softprops/action-gh-release@v2
-        if: success()  # 只有成功才发布
+        if: success()
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ steps.version.outputs.tag_name }}
           token: ${{ secrets.GITHUB_TOKEN }}
           files: |
-            nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz
+            output/${{ matrix.branch }}/${{ matrix.arch }}/${{ steps.version.outputs.file_name }}_${{ matrix.arch }}.ipk
+          name: "Nikki ${{ steps.version.outputs.version }} for ${{ matrix.arch }}"
+          draft: false
+          prerelease: false
 
-      - name: upload
+      # 上传构建产物作为Artifact
+      - name: upload artifacts
         uses: actions/upload-artifact@v4
-        if: success()  # 只有成功才上传
+        if: success()
         with:
-          name: feed_nikki_${{ matrix.arch }}-${{ matrix.branch }}
-          path: feed_nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz
+          name: nikki_${{ matrix.arch }}_${{ matrix.branch }}
+          path: output/${{ matrix.branch }}/${{ matrix.arch }}/*.ipk
           
+  # 生成feed索引
   feed:
     needs: release
-    name: feed
+    name: generate feed
     runs-on: ubuntu-latest
     steps:
-      - name: download
+      - name: download artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: feed_nikki_*
-          merge-multiple: true
-
-      - name: uncompress
+          pattern: nikki_*
+          path: public
+          
+      - name: organize feed structure
         run: |
-          for file in feed_nikki_*.tar.gz; do
-            tar -xzf "$file" || echo "解压 $file 失败"
-          done
+          # 查看下载的文件
+          echo "下载的构建产物:"
+          find public -type f | sort
+          
+          # 创建feeds目录结构
+          mkdir -p public/feeds/nikki
+          
+          # 复制IPK文件到feeds目录
+          find public -name "*.ipk" -exec cp {} public/feeds/nikki/ \;
+          
+          # 生成包索引
+          cd public/feeds/nikki/
+          
+          # 安装必要的工具
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev
+          
+          # 生成Packages索引
+          dpkg-scanpackages . > Packages
+          gzip -c Packages > Packages.gz
+          
+          # 查看生成的索引
+          echo "生成的索引文件大小:"
+          ls -lh Packages*
+          
+          echo "索引内容预览:"
+          head -n 20 Packages
 
-      - name: key
+      - name: sign packages
         run: |
-          echo "${{ secrets.KEY_BUILD_PUB }}" > public/key-build.pub
+          if [ -n "${{ secrets.KEY_BUILD_PUB }}" ]; then
+            echo "${{ secrets.KEY_BUILD_PUB }}" > public/feeds/nikki/key-build.pub
+            echo "已添加密钥文件"
+          else
+            echo "警告: 未提供KEY_BUILD_PUB密钥"
+          fi
 
-      - name: feed
+      - name: deploy feed
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./public
           force_orphan: true
-          commit_message: "release: ${{ github.ref_name }}"
+          commit_message: "release: Nikki ${{ github.ref_name }}"
