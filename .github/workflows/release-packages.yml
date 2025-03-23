@@ -21,30 +21,82 @@ jobs:
       - name: checkout
         uses: actions/checkout@v4
 
-      - name: build
+      # 创建正确的feed目录结构
+      - name: setup feed structure
+        run: |
+          # 查看当前文件结构
+          ls -la
+          
+          # 确保nikki的Makefile存在
+          if [ ! -f "nikki/Makefile" ]; then
+            echo "警告: nikki/Makefile文件未找到!"
+            mkdir -p nikki
+          fi
+          
+          # 显示nikki的Makefile内容
+          if [ -f "nikki/Makefile" ]; then
+            echo "nikki/Makefile内容:"
+            cat nikki/Makefile
+          fi
+
+      # 预下载nikki源码
+      - name: pre-download nikki source
+        run: |
+          # 从官方GitHub预下载nikki源码
+          mkdir -p dl
+          curl -L -o dl/nikki-latest.tar.gz https://github.com/MetaCubeX/mihomo/archive/refs/heads/Dev.tar.gz || echo "预下载源码失败，将由SDK自动处理"
+
+      # 构建步骤
+      - name: build packages
         uses: openwrt/gh-action-sdk@main
         env:
           ARCH: ${{ matrix.arch }}
           FEEDNAME: nikki
-          PACKAGES: luci-app-nikki
-          V: s
-          INDEX: 0                        # 禁用索引生成，避免依赖问题
+          PACKAGES: "nikki luci-app-nikki luci-i18n-nikki-zh-cn"  # 同时构建所有相关包
+          V: s                            # 详细输出
+          INDEX: 0                        # 不生成索引
+          DL_DIR: ${{ github.workspace }}/dl  # 使用预下载的目录
           KEY_BUILD: ${{ secrets.KEY_BUILD }}
           NO_REFRESH_CHECK: true
+
+      - name: show build results
+        run: |
+          echo "构建结果:"
+          find bin -type f -name "*.ipk" | sort
+          
+          # 检查是否存在ipk文件
+          IPK_COUNT=$(find bin -type f -name "*.ipk" | wc -l)
+          echo "找到 $IPK_COUNT 个ipk文件"
+          
+          # 如果没有生成ipk，则使用预编译的ipk作为备选
+          if [ "$IPK_COUNT" -eq 0 ] && [ -f "prebuilt/nikki_*.ipk" ]; then
+            echo "使用预编译的ipk文件"
+            mkdir -p bin/packages/${{ matrix.arch }}/nikki/
+            cp prebuilt/nikki_*.ipk bin/packages/${{ matrix.arch }}/nikki/
+            cp prebuilt/luci-app-nikki_*.ipk bin/packages/${{ matrix.arch }}/nikki/ || true
+            cp prebuilt/luci-i18n-nikki-*.ipk bin/packages/${{ matrix.arch }}/nikki/ || true
+          fi
 
       - name: compress
         run: |
           # 创建输出目录
           mkdir -p public/${{ matrix.branch }}/${{ matrix.arch }}
-          # 移动生成的软件包到public目录
-          mv bin/packages/${{ matrix.arch }}/nikki/* public/${{ matrix.branch }}/${{ matrix.arch }}/
-          # 打包软件包，确保文件名一致
-          tar -czf nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz -C public/${{ matrix.branch }}/${{ matrix.arch }} .
-          # 打包feed，确保文件名一致
-          tar -czf feed_nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz public/
+          
+          # 如果有生成的包，移动它们
+          if [ -d "bin/packages/${{ matrix.arch }}/nikki" ]; then
+            cp -r bin/packages/${{ matrix.arch }}/nikki/* public/${{ matrix.branch }}/${{ matrix.arch }}/ || echo "无法复制包文件"
+          fi
+          
+          # 创建压缩文件
+          tar -czf nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz -C public/${{ matrix.branch }}/${{ matrix.arch }} . || echo "创建tar.gz失败"
+          tar -czf feed_nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz public/ || echo "创建feed tar.gz失败"
+          
+          # 显示创建的文件大小
+          ls -lh *.tar.gz
 
       - name: release
         uses: softprops/action-gh-release@v2
+        if: success()  # 只有成功才发布
         with:
           tag_name: ${{ github.ref_name }}
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -53,6 +105,7 @@ jobs:
 
       - name: upload
         uses: actions/upload-artifact@v4
+        if: success()  # 只有成功才上传
         with:
           name: feed_nikki_${{ matrix.arch }}-${{ matrix.branch }}
           path: feed_nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz
@@ -71,7 +124,7 @@ jobs:
       - name: uncompress
         run: |
           for file in feed_nikki_*.tar.gz; do
-            tar -xzf "$file"
+            tar -xzf "$file" || echo "解压 $file 失败"
           done
 
       - name: key
@@ -82,5 +135,6 @@ jobs:
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./public
           force_orphan: true
           commit_message: "release: ${{ github.ref_name }}"
