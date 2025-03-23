@@ -1,4 +1,5 @@
 name: dependabot
+
 on:
   schedule:
     - cron: "0 0 * * *"  # 每天UTC 0点自动检查
@@ -79,35 +80,33 @@ jobs:
           repository: Misaka009982/OpenWrt-nikki
           ref: main
           path: OpenWrt-nikki
+          persist-credentials: true  # 关键：持久化Git凭证
+          fetch-depth: 0             # 获取完整提交历史
 
       - name: Update Makefile
         run: |
           makefile_path="OpenWrt-nikki/nikki/Makefile"
-          # 保留原始文件权限
-          cp "$makefile_path" "${makefile_path}.bak"
-          chmod --reference="${makefile_path}.bak" "$makefile_path"
+          # 删除备份文件避免干扰
+          rm -f "${makefile_path}.bak"
 
-          # 更新所有字段
-          sed -i.bak \
+          # 直接修改文件（无需备份）
+          sed -i \
             -e "s/PKG_SOURCE_VERSION:=.*/PKG_SOURCE_VERSION:=${{ needs.get_latest_release.outputs.commit_sha }}/" \
             -e "s/PKG_MIRROR_HASH:=.*/PKG_MIRROR_HASH:=${{ needs.get_latest_release.outputs.checksum }}/" \
             -e "s/PKG_BUILD_VERSION:=.*/PKG_BUILD_VERSION:=${tag_name#v}/" \
-            -e "s/PKG_SOURCE_DATE:=.*/PKG_SOURCE_DATE:=${{ needs.get_latest_release.outputs.release_date }}/" \
             "$makefile_path"
-
-          # 验证文件差异
-          diff "${makefile_path}.bak" "$makefile_path" || true
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v6
         with:
           path: OpenWrt-nikki
-          branch: "dependabot"
+          branch: dependabot
+          base: main  # 明确指定目标分支
+          delete-branch: true  # PR合并后自动删除分支
           commit-message: "build(mihomo): update to ${{ needs.get_latest_release.outputs.tag_name }}"
           title: "build: update mihomo to ${{ needs.get_latest_release.outputs.tag_name }}"
           body: |
             ## 更新详情
-            - **版本**: [${{ needs.get_latest_release.outputs.tag_name }}](https://github.com/MetaCubeX/mihomo/releases/tag/${{ needs.get_latest_release.outputs.tag_name }})
-            - **Commit**: [${{ needs.get_latest_release.outputs.commit_sha }}](https://github.com/MetaCubeX/mihomo/commit/${{ needs.get_latest_release.outputs.commit_sha }})
-            - **变更日志**: [比较差异](https://github.com/MetaCubeX/mihomo/compare/${{ needs.get_current_info.outputs.pkg_source_version }}...${{ needs.get_latest_release.outputs.commit_sha }})
-            - **校验验证**: 使用官方SHA256SUMS文件中的校验值
+            - 版本: [${{ needs.get_latest_release.outputs.tag_name }}](https://github.com/MetaCubeX/mihomo/releases/tag/${{ needs.get_latest_release.outputs.tag_name }})
+            - 提交: [${{ needs.get_latest_release.outputs.commit_sha }}](https://github.com/MetaCubeX/mihomo/commit/${{ needs.get_latest_release.outputs.commit_sha }})
+            - 变更日志: [差异对比](https://github.com/MetaCubeX/mihomo/compare/${{ needs.get_current_info.outputs.pkg_source_version }}...${{ needs.get_latest_release.outputs.commit_sha }})
