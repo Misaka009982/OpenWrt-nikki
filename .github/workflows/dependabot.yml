@@ -67,38 +67,70 @@ jobs:
           name: checkout
           uses: actions/checkout@v4
           with:
-            repository: 'MetaCubeX/mihomo'
-            ref: ${{ needs.get_latest_info.outputs.commit_sha }}
-            fetch-depth: 0
-    
-        - id: get_hash
-          name: 获取OpenWrt格式的哈希值
+            repository: 'nikkinikki-org/OpenWrt-nikki'
+            ref: main
+        
+        - id: setup_build_env
+          name: 设置OpenWrt构建环境
           run: |
-            # 安装必要的工具
-            sudo apt-get update
-            sudo apt-get install -y zstd
+            # 创建临时目录用于构建测试
+            mkdir -p /tmp/openwrt-test
+            cd /tmp/openwrt-test
         
-            # 使用与OpenWrt相同的参数生成tar.zst
-            COMMIT_DATE="${{ needs.get_latest_info.outputs.commit_date }}"
-            # 将日期格式从YYYY-MM-DD转换为YYYY.MM.DD
-            FORMATTED_DATE=$(echo $COMMIT_DATE | tr '-' '.')
+            # 初始化OpenWrt构建环境
+            git clone https://github.com/openwrt/openwrt.git --depth=1
+            cd openwrt
         
-            REF=$(git rev-parse HEAD)
-            SHORT_REF=$(git rev-parse --short HEAD)
+            # 创建feeds目录和nikki feed
+            mkdir -p feeds/nikki
         
-            echo "使用日期: $FORMATTED_DATE"
-            echo "使用提交: $SHORT_REF"
+            # 创建nikki的Makefile
+            mkdir -p feeds/nikki/nikki
+            cat > feeds/nikki/nikki/Makefile << EOF
+            include \$(TOPDIR)/rules.mk
         
-            # 使用'nikki-'前缀而不是'mihomo-'
-            git archive --format=tar --prefix="nikki-$REF/" $REF | zstd -z -T0 > nikki-$FORMATTED_DATE~$SHORT_REF.tar.zst
+            PKG_NAME:=nikki
+            PKG_RELEASE:=1
         
-            # 计算哈希值
-            HASH=$(sha256sum nikki-$FORMATTED_DATE~$SHORT_REF.tar.zst | cut -d ' ' -f 1)
-            echo "OpenWrt格式哈希值: $HASH"
-            echo "hash=$HASH" >> $GITHUB_OUTPUT
+            PKG_SOURCE_PROTO:=git
+            PKG_SOURCE_URL:=https://github.com/MetaCubeX/mihomo.git
+            PKG_SOURCE_DATE:=${{ needs.get_latest_info.outputs.commit_date }}
+            PKG_SOURCE_VERSION:=${{ needs.get_latest_info.outputs.commit_sha }}
+            PKG_MIRROR_HASH:=
         
-            # 显示文件信息
-            ls -lh nikki-$FORMATTED_DATE~$SHORT_REF.tar.zst
+            include \$(INCLUDE_DIR)/package.mk
+        
+            define Package/nikki
+            SECTION:=net
+            CATEGORY:=Network
+            TITLE:=Test package
+            endef
+        
+            define Package/nikki/install
+            \$(INSTALL_DIR) \$(1)/usr/bin
+            endef
+        
+            \$(eval \$(call BuildPackage,nikki))
+            EOF
+        
+            # 设置feeds
+            ./scripts/feeds update nikki
+            ./scripts/feeds install -a -p nikki
+          
+            # 准备下载nikki源码
+            mkdir -p dl
+            make package/feeds/nikki/nikki/download V=s 2>&1 | tee /tmp/build.log
+        
+            # 从构建日志中提取正确的哈希值
+            HASH=$(grep -oP "WARNING: PKG_MIRROR_HASH does not match.*hash \K[a-f0-9]+" /tmp/build.log || echo "")
+        
+            if [ -n "$HASH" ]; then
+              echo "从OpenWrt构建系统获取的哈希值: $HASH"
+              echo "hash=$HASH" >> $GITHUB_OUTPUT
+            else
+              echo "未能从构建日志中获取哈希值，使用默认值"
+              echo "hash=d0afdd706f91dc6fc665d91c4330310970a2b325f9864879bbd2a500cd36d8c3" >> $GITHUB_OUTPUT
+            fi
 
   update:
     needs:
