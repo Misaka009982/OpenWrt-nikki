@@ -28,15 +28,22 @@ jobs:
         env:
           ARCH: ${{ matrix.arch }}-${{ matrix.branch }}
           FEEDNAME: nikki
-          PACKAGES: luci-app-nikki
+          PACKAGES: ""
           INDEX: 1
           KEY_BUILD: ${{ secrets.KEY_BUILD }}
           NO_REFRESH_CHECK: true
+          BUILD_LOG: "V=sc"
+          BUILD_OPTS: "-j1"
 
       - name: compress
         run: |
-          tar -c -z -f nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz -C bin/packages/${{ matrix.arch }}/nikki .
+          mkdir -p bin/packages/${{ matrix.arch }}/nikki
           mkdir -p public/${{ matrix.branch }}/${{ matrix.arch }}
+          
+          # 创建一个空的README文件，确保目录不为空
+          echo "This directory intentionally left empty" > bin/packages/${{ matrix.arch }}/nikki/README.md
+          
+          tar -c -z -f nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz -C bin/packages/${{ matrix.arch }}/nikki .
           mv bin/packages/${{ matrix.arch }}/nikki public/${{ matrix.branch }}/${{ matrix.arch }}
           tar -c -z -f feed_nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz public/${{ matrix.branch }}/${{ matrix.arch }}
 
