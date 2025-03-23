@@ -17,7 +17,7 @@ jobs:
         id: checkout
         uses: actions/checkout@v4
         with:
-          repository: Misaka009982/OpenWrt-nikki
+          repository:Misaka009982/OpenWrt-nikki
           ref: main
           path: OpenWrt-nikki
 
@@ -40,30 +40,17 @@ jobs:
       - name: Get Latest Release Metadata
         id: release_info
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # 提高API速率限制
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 安装JSON解析工具
           sudo apt-get -qq install jq
-
-          # 获取最新release信息
-          release_json=$(curl -sH "Authorization: Bearer $GITHUB_TOKEN" \
-            https://api.github.com/repos/MetaCubeX/mihomo/releases/latest)
-
-          # 提取基础信息
+          release_json=$(curl -sH "Authorization: Bearer $GITHUB_TOKEN" https://api.github.com/repos/MetaCubeX/mihomo/releases/latest)
           tag_name=$(jq -r '.tag_name' <<< "$release_json")
           release_date=$(jq -r '.published_at' <<< "$release_json" | cut -d'T' -f1)
-          
-          # 获取对应commit SHA（假设release基于tag创建）
-          tag_info=$(curl -sH "Authorization: Bearer $GITHUB_TOKEN" \
-            "https://api.github.com/repos/MetaCubeX/mihomo/git/ref/tags/$tag_name")
+          tag_info=$(curl -sH "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/MetaCubeX/mihomo/git/ref/tags/$tag_name")
           commit_sha=$(jq -r '.object.sha' <<< "$tag_info")
-
-          # 从官方SHA256SUMS获取校验和
           sha_file_url="https://github.com/MetaCubeX/mihomo/releases/download/$tag_name/SHA256SUMS"
           sha_content=$(curl -sL "$sha_file_url")
           checksum=$(grep "mihomo-linux-arm64-${tag_name#v}.gz" <<< "$sha_content" | awk '{print $1}')
-
-          # 输出变量
           echo "tag_name=$tag_name" >> $GITHUB_OUTPUT
           echo "commit_sha=$commit_sha" >> $GITHUB_OUTPUT
           echo "checksum=$checksum" >> $GITHUB_OUTPUT
@@ -77,19 +64,25 @@ jobs:
       - name: Checkout OpenWrt-nikki
         uses: actions/checkout@v4
         with:
-          repository: Misaka009982/OpenWrt-nikki
+          repository:Misaka009982/OpenWrt-nikki
           ref: main
           path: OpenWrt-nikki
-          persist-credentials: true  # 关键：持久化Git凭证
+          persist-credentials: true  # 保持Git凭证
           fetch-depth: 0             # 获取完整提交历史
+          # 确保远程仓库信息正确
+          remote-name: origin
+          submodules: recursive
+
+      - name: Configure Git Safe Directory
+        run: |
+          git config --global --add safe.directory /__w/OpenWrt-nikki/OpenWrt-nikki
 
       - name: Update Makefile
         run: |
           makefile_path="OpenWrt-nikki/nikki/Makefile"
-          # 删除备份文件避免干扰
+          # 删除可能的备份文件
           rm -f "${makefile_path}.bak"
-
-          # 直接修改文件（无需备份）
+          # 直接修改文件
           sed -i \
             -e "s/PKG_SOURCE_VERSION:=.*/PKG_SOURCE_VERSION:=${{ needs.get_latest_release.outputs.commit_sha }}/" \
             -e "s/PKG_MIRROR_HASH:=.*/PKG_MIRROR_HASH:=${{ needs.get_latest_release.outputs.checksum }}/" \
@@ -100,13 +93,21 @@ jobs:
         uses: peter-evans/create-pull-request@v6
         with:
           path: OpenWrt-nikki
+          # 明确指定分支名称
           branch: dependabot
-          base: main  # 明确指定目标分支
-          delete-branch: true  # PR合并后自动删除分支
+          # 指定目标仓库
+          repository:Misaka009982/OpenWrt-nikki
+          # 指定基础分支
+          base: main
+          # 自动删除合并后的分支
+          delete-branch: true
+          # 提交信息
           commit-message: "build(mihomo): update to ${{ needs.get_latest_release.outputs.tag_name }}"
+          # PR标题
           title: "build: update mihomo to ${{ needs.get_latest_release.outputs.tag_name }}"
+          # PR内容
           body: |
             ## 更新详情
-            - 版本: [${{ needs.get_latest_release.outputs.tag_name }}](https://github.com/MetaCubeX/mihomo/releases/tag/${{ needs.get_latest_release.outputs.tag_name }})
-            - 提交: [${{ needs.get_latest_release.outputs.commit_sha }}](https://github.com/MetaCubeX/mihomo/commit/${{ needs.get_latest_release.outputs.commit_sha }})
-            - 变更日志: [差异对比](https://github.com/MetaCubeX/mihomo/compare/${{ needs.get_current_info.outputs.pkg_source_version }}...${{ needs.get_latest_release.outputs.commit_sha }})
+            - **版本**: [${{ needs.get_latest_release.outputs.tag_name }}](https://github.com/MetaCubeX/mihomo/releases/tag/${{ needs.get_latest_release.outputs.tag_name }})
+            - **提交**: [${{ needs.get_latest_release.outputs.commit_sha }}](https://github.com/MetaCubeX/mihomo/commit/${{ needs.get_latest_release.outputs.commit_sha }})
+            - **变更日志**: [差异对比](https://github.com/MetaCubeX/mihomo/compare/${{ needs.get_current_info.outputs.pkg_source_version }}...${{ needs.get_latest_release.outputs.commit_sha }})
