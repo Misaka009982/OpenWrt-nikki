@@ -143,7 +143,7 @@ jobs:
         with:
           path: OpenWrt-nikki
           token: ${{ secrets.GITHUB_TOKEN }}
-          branch: dependabot-mihomo-update
+          branch: dependabot
           delete-branch: true
           commit-message: "build: update mihomo to ${{ needs.get_latest_info.outputs.latest_tag }}"
           title: "build: update mihomo to ${{ needs.get_latest_info.outputs.latest_tag }}"
