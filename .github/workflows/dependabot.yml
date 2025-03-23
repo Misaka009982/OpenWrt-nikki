@@ -91,6 +91,7 @@ jobs:
           repository: Misaka009982/OpenWrt-nikki
           ref: main
           path: OpenWrt-nikki
+          fetch-depth: 0
       - id: update
         name: update
         run: |
@@ -105,6 +106,7 @@ jobs:
         with:
           path: OpenWrt-nikki
           branch: dependabot
+          base: main
           commit-message: "build: update mihomo to ${{ needs.get_latest_info.outputs.tag_name }}"
           title: "build: update mihomo to ${{ needs.get_latest_info.outputs.tag_name }}"
           body: |
