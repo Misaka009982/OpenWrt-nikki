@@ -347,7 +347,7 @@ jobs:
           git push --force origin dependabot
           
           # 检查是否已有相同主题的 PR
-          if gh pr list --state open --base main | grep -q "update mihomo to v${{ env.TAG_NAME }}"; then
+          if gh pr list --state open --base main | grep -q "update mihomo to ${{ env.TAG_NAME }}"; then
             echo "已存在更新到 v${{ env.TAG_NAME }} 的 PR，跳过创建新 PR"
           else
             # 使用 GitHub CLI 创建 PR
