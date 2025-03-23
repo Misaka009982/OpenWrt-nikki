@@ -80,7 +80,7 @@ jobs:
           path: OpenWrt-nikki
           branch: dependabot
           delete-branch: true
-          commit-message: "build: update mihomo to ${{ needs.get_latest_info.outputs.short_commit_sha }}"
-          title: "build: update mihomo to ${{ needs.get_latest_info.outputs.short_commit_sha }}"
+          commit-message: "build: update mihomo to ${{ needs.get_latest_info.outputs.commit_sha }}"
+          title: "build: update mihomo to ${{ needs.get_latest_info.outputs.commit_sha }}"
           body: |
             [Changelog](https://github.com/metacubex/mihomo/compare/${{ needs.get_current_info.outputs.pkg_source_version }}...${{  needs.get_latest_info.outputs.commit_sha }})
