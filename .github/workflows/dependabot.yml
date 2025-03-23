@@ -103,7 +103,11 @@ jobs:
 
   update:
     needs: [get_current_info, get_latest_info]
-    if: ${{ needs.get_current_info.outputs.pkg_build_version != needs.get_latest_info.outputs.latest_tag }}
+    # 修改条件：版本号不同 或 commit哈希不同 或 校验和不同
+    if: |
+      needs.get_current_info.outputs.pkg_build_version != needs.get_latest_info.outputs.latest_tag ||
+      needs.get_current_info.outputs.pkg_source_version != needs.get_latest_info.outputs.commit_sha ||
+      needs.get_current_info.outputs.pkg_mirror_hash != needs.get_latest_info.outputs.checksum
     runs-on: ubuntu-latest
     steps:
       - name: Checkout OpenWrt-nikki
@@ -124,7 +128,7 @@ jobs:
           echo "更新前的Makefile信息:"
           grep -E 'PKG_SOURCE_VERSION|PKG_MIRROR_HASH|PKG_BUILD_VERSION|PKG_SOURCE_DATE' Makefile
           
-          # 更新Makefile
+          # 更新Makefile，使用commit哈希替代版本号
           sed -i "s|PKG_SOURCE_VERSION:=.*|PKG_SOURCE_VERSION:=${{ needs.get_latest_info.outputs.commit_sha }}|" Makefile
           sed -i "s|PKG_MIRROR_HASH:=.*|PKG_MIRROR_HASH:=${{ needs.get_latest_info.outputs.checksum }}|" Makefile
           sed -i "s|PKG_BUILD_VERSION:=.*|PKG_BUILD_VERSION:=${{ needs.get_latest_info.outputs.latest_tag }}|" Makefile
@@ -149,7 +153,8 @@ jobs:
             ## 更新信息
             - 版本: ${{ needs.get_current_info.outputs.pkg_build_version }} → ${{ needs.get_latest_info.outputs.latest_tag }}
             - 提交: ${{ needs.get_current_info.outputs.pkg_source_version }} → ${{ needs.get_latest_info.outputs.commit_sha }}
-            - 日期: ${{ needs.get_current_info.outputs.pkg_source_date }} → $(date -u +%Y-%m-%d)
+            - 校验和: ${{ needs.get_current_info.outputs.pkg_mirror_hash }} → ${{ needs.get_latest_info.outputs.checksum }}
+            - 日期: ${{ needs.get_current_info.outputs.pkg_source_date }} → ${CURRENT_DATE}
             
             ## 变更日志
-            [查看完整变更](https://github.com/metacubex/mihomo/compare/${{ needs.get_current_info.outputs.pkg_source_version }}...${{  needs.get_latest_info.outputs.commit_sha }})
+            [查看完整变更](https://github.com/metacubex/mihomo/compare/${{ needs.get_current_info.outputs.pkg_source_version }}...${{ needs.get_latest_info.outputs.commit_sha }})
