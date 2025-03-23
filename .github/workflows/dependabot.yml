@@ -48,7 +48,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: 'MetaCubeX/mihomo'
-          ref: ${{ steps.get_tag.outputs.tag }}  # 使用最新发布版本的标签
+          ref: ${{ steps.get_tag.outputs.tag }}
           path: 'mihomo'
           
       - id: info
@@ -57,9 +57,15 @@ jobs:
           echo "commit_date=$(git -C mihomo log -n 1 --format=%cs)" >> $GITHUB_OUTPUT
           echo "commit_sha=$(git -C mihomo rev-parse HEAD)" >> $GITHUB_OUTPUT
           echo "short_commit_sha=$(git -C mihomo rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          
+          # 正确生成tar.xz并计算校验和
           git -C mihomo config tar.xz.command "xz -c"
-          git -C mihomo archive --output=mihomo.tar.xz HEAD
-          echo "checksum=$(sha256sum mihomo.tar.xz | cut -d ' ' -f 1)" >> $GITHUB_OUTPUT
+          git -C mihomo archive --output=../mihomo.tar.xz HEAD
+          
+          # 计算并显示校验和
+          CHECKSUM=$(sha256sum ../mihomo.tar.xz | cut -d ' ' -f 1)
+          echo "生成的校验和: $CHECKSUM"
+          echo "checksum=$CHECKSUM" >> $GITHUB_OUTPUT
           
   update:
     needs:
@@ -75,33 +81,43 @@ jobs:
           repository: Misaka009982/OpenWrt-nikki
           ref: main
           path: OpenWrt-nikki
-          fetch-depth: 0  # 获取完整历史
+          fetch-depth: 0
           
       - id: update
         name: update
         run: |
           cd OpenWrt-nikki
           
-          # 确保远程跟踪设置正确
-          git remote -v
+          # 调试输出
+          echo "将更新以下值:"
+          echo "提交日期: ${{ needs.get_latest_info.outputs.commit_date }}"
+          echo "提交哈希: ${{ needs.get_latest_info.outputs.commit_sha }}"
+          echo "校验和: ${{ needs.get_latest_info.outputs.checksum }}"
+          echo "版本号: ${{ needs.get_latest_info.outputs.latest_tag }}"
           
-          # 创建并切换到新分支
+          # 创建分支
           git checkout -b dependabot
           
-          # 修改文件
-          sed -i "s/PKG_RELEASE:=.*/PKG_RELEASE:=1/" nikki/Makefile
-          sed -i "s/PKG_SOURCE_DATE:=.*/PKG_SOURCE_DATE:=${{ needs.get_latest_info.outputs.commit_date }}/" nikki/Makefile
-          sed -i "s/PKG_SOURCE_VERSION:=.*/PKG_SOURCE_VERSION:=${{ needs.get_latest_info.outputs.commit_sha }}/" nikki/Makefile
-          sed -i "s/PKG_MIRROR_HASH:=.*/PKG_MIRROR_HASH:=${{ needs.get_latest_info.outputs.checksum }}/" nikki/Makefile
-          sed -i "s/PKG_BUILD_VERSION:=.*/PKG_BUILD_VERSION:=${{ needs.get_latest_info.outputs.latest_tag }}/" nikki/Makefile
+          # 显示当前值
+          echo "更新前的Makefile内容:"
+          grep -E "PKG_SOURCE_VERSION|PKG_MIRROR_HASH|PKG_BUILD_VERSION|PKG_SOURCE_DATE" nikki/Makefile
           
-          # 提交更改
+          # 更新Makefile
+          sed -i "s/PKG_RELEASE:=.*/PKG_RELEASE:=1/" nikki/Makefile
+          sed -i "s|PKG_SOURCE_DATE:=.*|PKG_SOURCE_DATE:=${{ needs.get_latest_info.outputs.commit_date }}|" nikki/Makefile
+          sed -i "s|PKG_SOURCE_VERSION:=.*|PKG_SOURCE_VERSION:=${{ needs.get_latest_info.outputs.commit_sha }}|" nikki/Makefile
+          sed -i "s|PKG_MIRROR_HASH:=.*|PKG_MIRROR_HASH:=${{ needs.get_latest_info.outputs.checksum }}|" nikki/Makefile
+          sed -i "s|PKG_BUILD_VERSION:=.*|PKG_BUILD_VERSION:=${{ needs.get_latest_info.outputs.latest_tag }}|" nikki/Makefile
+          
+          # 显示更新后结果
+          echo "更新后的Makefile内容:"
+          grep -E "PKG_SOURCE_VERSION|PKG_MIRROR_HASH|PKG_BUILD_VERSION|PKG_SOURCE_DATE" nikki/Makefile
+          
+          # 提交并推送
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add nikki/Makefile
           git commit -m "build: update mihomo to ${{ needs.get_latest_info.outputs.latest_tag }}"
-          
-          # 推送到远程
           git push -f origin dependabot
           
       - name: Create Pull Request
@@ -128,6 +144,7 @@ jobs:
             
           ## 更新信息
           - 提交: ${{ needs.get_current_info.outputs.pkg_source_version }} → ${{ needs.get_latest_info.outputs.commit_sha }}
+          - 校验和: ${{ needs.get_current_info.outputs.pkg_mirror_hash }} → ${{ needs.get_latest_info.outputs.checksum }}
           - 日期: ${{ needs.get_latest_info.outputs.commit_date }}
             
           ## 变更日志
