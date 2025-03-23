@@ -5,6 +5,10 @@ on:
     - cron: "0 0 * * *"
   workflow_dispatch:
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
   get_current_info:
     runs-on: ubuntu-latest
@@ -92,6 +96,17 @@ jobs:
           ref: main
           path: OpenWrt-nikki
           fetch-depth: 0
+          token: ${{ github.token }}
+          
+      - id: git_config
+        name: 配置 Git
+        run: |
+          cd OpenWrt-nikki
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --all
+          git branch -a
+          
       - id: update
         name: update
         run: |
@@ -100,19 +115,24 @@ jobs:
           sed -i "s/PKG_SOURCE_VERSION:=.*/PKG_SOURCE_VERSION:=${{ needs.get_latest_info.outputs.commit_sha }}/" OpenWrt-nikki/nikki/Makefile
           sed -i "s/PKG_MIRROR_HASH:=.*/PKG_MIRROR_HASH:=${{ needs.get_latest_info.outputs.checksum }}/" OpenWrt-nikki/nikki/Makefile
           sed -i "s/PKG_BUILD_VERSION:=.*/PKG_BUILD_VERSION:=${{ needs.get_latest_info.outputs.tag_name }}/" OpenWrt-nikki/nikki/Makefile
-      - id: pr
-        name: pr
-        uses: peter-evans/create-pull-request@v6
-        with:
-          path: OpenWrt-nikki
-          branch: dependabot
-          base: main
-          commit-message: "build: update mihomo to ${{ needs.get_latest_info.outputs.tag_name }}"
-          title: "build: update mihomo to ${{ needs.get_latest_info.outputs.tag_name }}"
-          body: |
-            将 mihomo 更新到最新标签: ${{ needs.get_latest_info.outputs.tag_name }}
-            
-            提交: ${{ needs.get_latest_info.outputs.commit_sha }}
-            日期: ${{ needs.get_latest_info.outputs.commit_date }}
-            
-            [更新日志](https://github.com/metacubex/mihomo/compare/${{ needs.get_current_info.outputs.pkg_source_version }}...${{  needs.get_latest_info.outputs.commit_sha }})
+          
+      - id: create_pr
+        name: 创建 PR
+        run: |
+          cd OpenWrt-nikki
+          git checkout -b dependabot
+          git add nikki/Makefile
+          git commit -m "build: update mihomo to ${{ needs.get_latest_info.outputs.tag_name }}"
+          git push --force origin dependabot
+          
+          # 使用 GitHub CLI 创建 PR
+          gh pr create --title "build: update mihomo to ${{ needs.get_latest_info.outputs.tag_name }}" \
+                       --body "将 mihomo 更新到最新标签: ${{ needs.get_latest_info.outputs.tag_name }}
+          
+          提交: ${{ needs.get_latest_info.outputs.commit_sha }}
+          日期: ${{ needs.get_latest_info.outputs.commit_date }}
+          
+          [更新日志](https://github.com/metacubex/mihomo/compare/${{ needs.get_current_info.outputs.pkg_source_version }}...${{  needs.get_latest_info.outputs.commit_sha }})" \
+                       --base main
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
