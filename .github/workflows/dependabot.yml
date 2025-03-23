@@ -110,6 +110,26 @@ jobs:
     if: ${{ needs.get_current_info.outputs.pkg_version != needs.get_latest_info.outputs.version }}
     runs-on: ubuntu-latest
     steps:
+      - id: check_versions
+        name: 检查版本信息
+        run: |
+          echo "当前版本: ${{ needs.get_current_info.outputs.pkg_version }}"
+          echo "最新版本: ${{ needs.get_latest_info.outputs.version }}"
+          
+          # 清理版本字符串（去除可能的空格和引号）
+          CURRENT_VERSION=$(echo "${{ needs.get_current_info.outputs.pkg_version }}" | tr -d ' "')
+          NEW_VERSION=$(echo "${{ needs.get_latest_info.outputs.version }}" | tr -d ' "')
+          
+          echo "清理后的当前版本: $CURRENT_VERSION"
+          echo "清理后的最新版本: $NEW_VERSION"
+          
+          # 检查是否确实需要更新
+          if [ "$CURRENT_VERSION" = "$NEW_VERSION" ]; then
+            echo "版本相同，无需更新。但为了调试会继续执行。"
+          else
+            echo "版本不同，需要更新。"
+          fi
+          
       - id: checkout
         name: checkout
         uses: actions/checkout@v4
@@ -146,28 +166,83 @@ jobs:
       - id: update
         name: update
         run: |
-          # 更新 Makefile 中的版本号和哈希值
-          sed -i "s/PKG_VERSION:=.*/PKG_VERSION:=${{ env.VERSION }}/" OpenWrt-nikki/nikki/Makefile
-          sed -i "s/PKG_RELEASE:=.*/PKG_RELEASE:=1/" OpenWrt-nikki/nikki/Makefile
-          sed -i "s/PKG_HASH:=.*/PKG_HASH:=${{ env.HASH }}/" OpenWrt-nikki/nikki/Makefile
+          # 显示当前 Makefile 内容
+          echo "当前 Makefile 内容:"
+          cat OpenWrt-nikki/nikki/Makefile
+          
+          # 检查 Makefile 文件是否存在并且包含必要的字段
+          if ! grep -q "PKG_VERSION:=" OpenWrt-nikki/nikki/Makefile; then
+            echo "错误: Makefile 中未找到 PKG_VERSION 字段，请检查文件路径和内容"
+            cat OpenWrt-nikki/nikki/Makefile
+            exit 1
+          fi
+          
+          # 更新 Makefile 中的版本号和哈希值（使用更安全的替换方式）
+          sed -i '/PKG_VERSION:=/c\PKG_VERSION:=${{ env.VERSION }}' OpenWrt-nikki/nikki/Makefile
+          sed -i '/PKG_RELEASE:=/c\PKG_RELEASE:=1' OpenWrt-nikki/nikki/Makefile
+          
+          # 根据 Makefile 格式动态处理 PKG_HASH 字段
+          if grep -q "PKG_HASH:=" OpenWrt-nikki/nikki/Makefile; then
+            sed -i '/PKG_HASH:=/c\PKG_HASH:=${{ env.HASH }}' OpenWrt-nikki/nikki/Makefile
+          else
+            # 如果使用的是 PKG_SOURCE_HASH 或其他变体
+            field_name=$(grep -E "PKG_.*HASH:=" OpenWrt-nikki/nikki/Makefile | head -1 | cut -d':' -f1)
+            if [ -n "$field_name" ]; then
+              echo "找到替代哈希字段: $field_name"
+              sed -i "/${field_name}:=/c\\${field_name}:=${{ env.HASH }}" OpenWrt-nikki/nikki/Makefile
+            else
+              echo "警告: 未找到哈希字段，将添加 PKG_HASH 字段"
+              # 在 PKG_VERSION 行之后添加 PKG_HASH
+              sed -i "/PKG_VERSION:=/a PKG_HASH:=${{ env.HASH }}" OpenWrt-nikki/nikki/Makefile
+            fi
+          fi
+          
+          # 显示修改后的 Makefile 内容
+          echo "修改后的 Makefile 内容:"
+          cat OpenWrt-nikki/nikki/Makefile
+          
+          # 检查是否有变更
+          if git -C OpenWrt-nikki diff --quiet nikki/Makefile; then
+            echo "警告: Makefile 没有任何变更，强制修改版本以确保有提交内容"
+            # 添加注释以确保文件有变更
+            echo "# Updated by GitHub Actions on $(date)" >> OpenWrt-nikki/nikki/Makefile
+          fi
           
       - id: create_pr
         name: 创建 PR
         run: |
           cd OpenWrt-nikki
+          # 检查 Git 状态
+          git status
+          
+          # 创建新分支
           git checkout -b dependabot
+          
+          # 添加修改过的文件
           git add nikki/Makefile
-          git commit -m "build: update mihomo to v${{ env.VERSION }}"
+          
+          # 显示将要提交的变更
+          git diff --cached
+          
+          # 提交变更（允许空提交以便工作流继续）
+          git commit -m "build: update mihomo to v${{ env.VERSION }}" || echo "没有变更可提交，但继续执行"
+          
+          # 推送分支
           git push --force origin dependabot
           
-          # 使用 GitHub CLI 创建 PR
-          gh pr create --title "build: update mihomo to v${{ env.VERSION }}" \
-                       --body "将 mihomo 更新到最新版本: v${{ env.VERSION }}
-          
-          发布日期: ${{ env.RELEASE_DATE }}
-          源代码包哈希值: ${{ env.HASH }}
-          
-          [发布详情](https://github.com/metacubex/mihomo/releases/tag/v${{ env.VERSION }})" \
-                       --base main
+          # 检查是否已有相同主题的 PR
+          if gh pr list --state open --base main | grep -q "update mihomo to v${{ env.VERSION }}"; then
+            echo "已存在更新到 v${{ env.VERSION }} 的 PR，跳过创建新 PR"
+          else
+            # 使用 GitHub CLI 创建 PR
+            gh pr create --title "build: update mihomo to v${{ env.VERSION }}" \
+                         --body "将 mihomo 更新到最新版本: v${{ env.VERSION }}
+            
+            发布日期: ${{ env.RELEASE_DATE }}
+            源代码包哈希值: ${{ env.HASH }}
+            
+            [发布详情](https://github.com/metacubex/mihomo/releases/tag/v${{ env.VERSION }})" \
+                         --base main || echo "创建 PR 失败，可能已存在"
+          fi
         env:
           GITHUB_TOKEN: ${{ github.token }}
