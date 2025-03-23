@@ -75,30 +75,60 @@ jobs:
           repository: Misaka009982/OpenWrt-nikki
           ref: main
           path: OpenWrt-nikki
+          fetch-depth: 0  # 获取完整历史
           
       - id: update
         name: update
         run: |
-          sed -i "s/PKG_RELEASE:=.*/PKG_RELEASE:=1/" OpenWrt-nikki/nikki/Makefile
-          sed -i "s/PKG_SOURCE_DATE:=.*/PKG_SOURCE_DATE:=${{ needs.get_latest_info.outputs.commit_date }}/" OpenWrt-nikki/nikki/Makefile
-          sed -i "s/PKG_SOURCE_VERSION:=.*/PKG_SOURCE_VERSION:=${{ needs.get_latest_info.outputs.commit_sha }}/" OpenWrt-nikki/nikki/Makefile
-          sed -i "s/PKG_MIRROR_HASH:=.*/PKG_MIRROR_HASH:=${{ needs.get_latest_info.outputs.checksum }}/" OpenWrt-nikki/nikki/Makefile
-          sed -i "s/PKG_BUILD_VERSION:=.*/PKG_BUILD_VERSION:=${{ needs.get_latest_info.outputs.latest_tag }}/" OpenWrt-nikki/nikki/Makefile
+          cd OpenWrt-nikki
           
-      - id: pr
-        name: pr
-        uses: peter-evans/create-pull-request@v6
-        with:
-          path: OpenWrt-nikki
-          branch: dependabot
-          commit-message: "build: update mihomo to ${{ needs.get_latest_info.outputs.latest_tag }}"
-          title: "build: update mihomo to ${{ needs.get_latest_info.outputs.latest_tag }}"
-          body: |
-            # 更新mihomo到最新发布版本 ${{ needs.get_latest_info.outputs.latest_tag }}
+          # 确保远程跟踪设置正确
+          git remote -v
+          
+          # 创建并切换到新分支
+          git checkout -b dependabot
+          
+          # 修改文件
+          sed -i "s/PKG_RELEASE:=.*/PKG_RELEASE:=1/" nikki/Makefile
+          sed -i "s/PKG_SOURCE_DATE:=.*/PKG_SOURCE_DATE:=${{ needs.get_latest_info.outputs.commit_date }}/" nikki/Makefile
+          sed -i "s/PKG_SOURCE_VERSION:=.*/PKG_SOURCE_VERSION:=${{ needs.get_latest_info.outputs.commit_sha }}/" nikki/Makefile
+          sed -i "s/PKG_MIRROR_HASH:=.*/PKG_MIRROR_HASH:=${{ needs.get_latest_info.outputs.checksum }}/" nikki/Makefile
+          sed -i "s/PKG_BUILD_VERSION:=.*/PKG_BUILD_VERSION:=${{ needs.get_latest_info.outputs.latest_tag }}/" nikki/Makefile
+          
+          # 提交更改
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add nikki/Makefile
+          git commit -m "build: update mihomo to ${{ needs.get_latest_info.outputs.latest_tag }}"
+          
+          # 推送到远程
+          git push -f origin dependabot
+          
+      - name: Create Pull Request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 使用gh CLI创建PR
+          cd OpenWrt-nikki
+          
+          # 检查是否已存在PR
+          EXISTING_PR=$(gh pr list --repo Misaka009982/OpenWrt-nikki --head dependabot --json number -q '.[0].number')
+          
+          if [ -n "$EXISTING_PR" ]; then
+            echo "已存在PR #$EXISTING_PR，更新它"
+            gh pr close $EXISTING_PR --repo Misaka009982/OpenWrt-nikki
+          fi
+          
+          # 创建新PR
+          gh pr create --repo Misaka009982/OpenWrt-nikki \
+            --base main \
+            --head dependabot \
+            --title "build: update mihomo to ${{ needs.get_latest_info.outputs.latest_tag }}" \
+            --body "# 更新mihomo到最新发布版本 ${{ needs.get_latest_info.outputs.latest_tag }}
             
-            ## 更新信息
-            - 提交: ${{ needs.get_current_info.outputs.pkg_source_version }} → ${{ needs.get_latest_info.outputs.commit_sha }}
-            - 日期: ${{ needs.get_latest_info.outputs.commit_date }}
+          ## 更新信息
+          - 提交: ${{ needs.get_current_info.outputs.pkg_source_version }} → ${{ needs.get_latest_info.outputs.commit_sha }}
+          - 日期: ${{ needs.get_latest_info.outputs.commit_date }}
             
-            ## 变更日志
-            [查看完整变更](https://github.com/metacubex/mihomo/compare/${{ needs.get_current_info.outputs.pkg_source_version }}...${{ needs.get_latest_info.outputs.commit_sha }})
+          ## 变更日志
+          [查看完整变更](https://github.com/metacubex/mihomo/compare/${{ needs.get_current_info.outputs.pkg_source_version }}...${{ needs.get_latest_info.outputs.commit_sha }})"
