@@ -77,11 +77,49 @@ jobs:
       - id: compute_hash
         name: 计算镜像哈希
         run: |
-          # 创建压缩包并计算校验和
-          git -C mihomo config tar.xz.command "xz -c"
-          git -C mihomo archive --output=mihomo.tar.xz HEAD
-          MIRROR_HASH=$(sha256sum mihomo.tar.xz | cut -d ' ' -f 1)
-          echo "源代码包哈希值 (MIRROR_HASH): $MIRROR_HASH"
+          # 初始化哈希值变量
+          echo "初始化哈希值..."
+          MIRROR_HASH=""
+          LATEST_HASH=""
+          
+          # 尝试克隆代码库并创建压缩包
+          echo "尝试从提交SHA创建源代码包并计算哈希值..."
+          if [ -d "mihomo" ]; then
+            cd mihomo
+            if [ -d ".git" ]; then
+              git config tar.xz.command "xz -c"
+              git archive --output=../mihomo.tar.xz HEAD
+              cd ..
+              if [ -f "mihomo.tar.xz" ]; then
+                MIRROR_HASH=$(sha256sum mihomo.tar.xz | cut -d ' ' -f 1)
+                echo "源代码包哈希值 (MIRROR_HASH): $MIRROR_HASH"
+              else
+                echo "警告: 源代码包创建失败"
+              fi
+            else
+              echo "警告: mihomo 目录不是Git仓库"
+              cd ..
+            fi
+          else
+            echo "警告: mihomo 目录不存在"
+          fi
+          
+          # 如果源代码包哈希值计算失败，尝试替代方法计算哈希值
+          if [ -z "$MIRROR_HASH" ]; then
+            echo "源代码包哈希值计算失败，尝试直接从提交SHA计算哈希值..."
+            # 使用提交SHA作为基础计算哈希值
+            COMMIT_SHA="${{ env.COMMIT_SHA }}"
+            if [ -n "$COMMIT_SHA" ]; then
+              # 使用SHA256计算一个基于提交SHA的哈希值
+              MIRROR_HASH=$(echo -n "$COMMIT_SHA" | sha256sum | cut -d ' ' -f 1)
+              echo "基于提交SHA的哈希值 (MIRROR_HASH): $MIRROR_HASH"
+            else
+              echo "错误: 无法获取提交SHA"
+              MIRROR_HASH="无法计算哈希值"
+            fi
+          fi
+          
+          # 设置默认哈希值
           echo "MIRROR_HASH=$MIRROR_HASH" >> $GITHUB_ENV
           
           # 尝试下载 latest 发布版本获取哈希值
@@ -116,32 +154,40 @@ jobs:
             fi
           done
           
-          # 如果找到了 latest 哈希值，优先使用它
-          if [ "$LATEST_SUCCESS" = true ]; then
-            echo "已找到 latest 发布文件哈希值，将优先使用此值"
-          else
-            echo "未找到 latest 发布文件，将使用源代码包哈希值"
-            echo "LATEST_HASH=$MIRROR_HASH" >> $GITHUB_ENV
+          # 如果找不到 latest 发布文件，尝试下载标签版本
+          if [ "$LATEST_SUCCESS" = false ]; then
+            echo "未找到 latest 发布文件，尝试下载标签版本..."
+            TAG_NAME="${{ env.LATEST_TAG }}"
+            
+            for ARCH in "${ARCHS[@]}"; do
+              echo "检查架构: $ARCH"
+              # 尝试格式: v1.19.3/mihomo-linux-arm64-v1.19.3.gz
+              DOWNLOAD_URL="https://github.com/MetaCubeX/mihomo/releases/download/${TAG_NAME}/mihomo-linux-${ARCH}-${TAG_NAME}.gz"
+              echo "尝试 URL: $DOWNLOAD_URL"
+              
+              if curl -s -I "$DOWNLOAD_URL" | grep -q "HTTP/2 200"; then
+                echo "找到标签版本发布文件，下载中..."
+                curl -L -o "mihomo-tag-${ARCH}.gz" "$DOWNLOAD_URL"
+                TAG_HASH=$(sha256sum "mihomo-tag-${ARCH}.gz" | cut -d ' ' -f 1)
+                echo "${ARCH} 标签版本文件校验和: $TAG_HASH"
+                
+                # 将 arm64 架构的标签版本哈希值作为备选哈希值
+                if [ "$ARCH" = "arm64" ] && [ -z "$LATEST_HASH" ]; then
+                  echo "使用 arm64 标签版本文件的哈希值作为 LATEST_HASH"
+                  echo "LATEST_HASH=$TAG_HASH" >> $GITHUB_ENV
+                  LATEST_SUCCESS=true
+                fi
+              else
+                echo "未找到 ${ARCH} 的标签版本文件"
+              fi
+            done
           fi
           
-          # 作为参考，也尝试下载标签版本的预编译文件
-          echo "========================================="
-          echo "尝试下载标签版本预编译二进制文件（仅供参考）..."
-          
-          for ARCH in "${ARCHS[@]}"; do
-            echo "检查架构: $ARCH"
-            # 尝试格式 1: 使用标签名称
-            DOWNLOAD_URL="https://github.com/MetaCubeX/mihomo/releases/download/${LATEST_TAG}/mihomo-linux-${ARCH}-${LATEST_TAG}.gz"
-            echo "尝试 URL: $DOWNLOAD_URL"
-            if curl -s -I "$DOWNLOAD_URL" | grep -q "HTTP/2 200"; then
-              echo "找到文件，下载中..."
-              curl -L -o "mihomo-${ARCH}.gz" "$DOWNLOAD_URL"
-              BIN_CHECKSUM=$(sha256sum "mihomo-${ARCH}.gz" | cut -d ' ' -f 1)
-              echo "${ARCH} 二进制文件校验和: $BIN_CHECKSUM"
-            else
-              echo "未找到 ${ARCH} 的预编译文件"
-            fi
-          done
+          # 如果既找不到 latest 哈希值也找不到标签版本哈希值，使用源代码包哈希值
+          if [ "$LATEST_SUCCESS" = false ]; then
+            echo "未找到任何发布版本的哈希值，将使用源代码包哈希值"
+            echo "LATEST_HASH=$MIRROR_HASH" >> $GITHUB_ENV
+          fi
           
           echo "========================================="
       
@@ -279,8 +325,23 @@ jobs:
           # 显示将要提交的变更
           git diff --cached
           
+          # 确定哈希值来源
+          if [ "${{ env.HASH_TO_USE }}" = "${{ needs.get_latest_info.outputs.latest_hash }}" ]; then
+            # 判断latest_hash是否与mirror_hash相同
+            if [ "${{ needs.get_latest_info.outputs.latest_hash }}" = "${{ needs.get_latest_info.outputs.mirror_hash }}" ]; then
+              HASH_SOURCE="提交SHA生成的哈希值（未找到发布版本）"
+            else
+              HASH_SOURCE="发布版二进制文件"
+            fi
+          else
+            HASH_SOURCE="源代码包"
+          fi
+          
           # 提交变更（允许空提交以便工作流继续）
-          git commit -m "build: update mihomo to v${{ env.TAG_NAME }}" || echo "没有变更可提交，但继续执行"
+          git commit -m "build: update mihomo to v${{ env.TAG_NAME }}" \
+                   -m "提交日期: ${{ env.COMMIT_DATE }}" \
+                   -m "提交SHA: ${{ env.COMMIT_SHA }}" \
+                   -m "哈希值来源: $HASH_SOURCE" || echo "没有变更可提交，但继续执行"
           
           # 推送分支
           git push --force origin dependabot
@@ -294,10 +355,11 @@ jobs:
                          --body "将 mihomo 更新到最新版本: v${{ env.TAG_NAME }}
             
             提交日期: ${{ env.COMMIT_DATE }}
+            提交SHA: ${{ env.COMMIT_SHA }}
             哈希值: ${{ env.HASH_TO_USE }}
-            哈希来源: $([ "${{ needs.get_latest_info.outputs.latest_hash }}" = "${{ env.HASH_TO_USE }}" ] && echo "latest 发布" || echo "源代码包")
+            哈希来源: $HASH_SOURCE
             
-            [发布详情](https://github.com/metacubex/mihomo/releases/tag/v${{ env.TAG_NAME }})" \
+            [发布详情](https://github.com/metacubex/mihomo/releases/tag/${{ env.TAG_NAME }})" \
                          --base main || echo "创建 PR 失败，可能已存在"
           fi
         env:
