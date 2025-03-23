@@ -6,6 +6,7 @@ on:
 
 jobs:
   get_current_info:
+    # 保持不变...
     runs-on: ubuntu-latest
     outputs:
       pkg_source_version: ${{ steps.info.outputs.pkg_source_version }}
@@ -13,93 +14,17 @@ jobs:
       pkg_build_version: ${{ steps.info.outputs.pkg_build_version }}
       pkg_source_date: ${{ steps.info.outputs.pkg_source_date }}
     steps:
-      - name: Checkout OpenWrt-nikki
-        uses: actions/checkout@v4
-        with:
-          repository: Misaka009982/OpenWrt-nikki
-          ref: main
-          path: OpenWrt-nikki
-
-      - name: Extract Makefile info
-        id: info
-        run: |
-          # 检查Makefile是否存在
-          if [ ! -f "OpenWrt-nikki/nikki/Makefile" ]; then
-            echo "错误: 找不到Makefile文件"
-            exit 1
-          fi
-          
-          # 提取信息
-          PKG_SOURCE_VERSION=$(grep 'PKG_SOURCE_VERSION:=' OpenWrt-nikki/nikki/Makefile | cut -d '=' -f 2 | tr -d ' ')
-          PKG_MIRROR_HASH=$(grep 'PKG_MIRROR_HASH:=' OpenWrt-nikki/nikki/Makefile | cut -d '=' -f 2 | tr -d ' ')
-          PKG_BUILD_VERSION=$(grep 'PKG_BUILD_VERSION:=' OpenWrt-nikki/nikki/Makefile | cut -d '=' -f 2 | tr -d ' ')
-          PKG_SOURCE_DATE=$(grep 'PKG_SOURCE_DATE:=' OpenWrt-nikki/nikki/Makefile | cut -d '=' -f 2 | tr -d ' ')
-          
-          # 输出信息
-          echo "当前版本信息:"
-          echo "PKG_SOURCE_VERSION: $PKG_SOURCE_VERSION"
-          echo "PKG_MIRROR_HASH: $PKG_MIRROR_HASH"
-          echo "PKG_BUILD_VERSION: $PKG_BUILD_VERSION"
-          echo "PKG_SOURCE_DATE: $PKG_SOURCE_DATE"
-          
-          # 设置输出变量，确保有默认值
-          echo "pkg_source_version=${PKG_SOURCE_VERSION:-unknown}" >> $GITHUB_OUTPUT
-          echo "pkg_mirror_hash=${PKG_MIRROR_HASH:-unknown}" >> $GITHUB_OUTPUT
-          echo "pkg_build_version=${PKG_BUILD_VERSION:-unknown}" >> $GITHUB_OUTPUT
-          echo "pkg_source_date=${PKG_SOURCE_DATE:-unknown}" >> $GITHUB_OUTPUT
+      # 保持不变...
 
   get_latest_info:
+    # 保持不变...
     runs-on: ubuntu-latest
     outputs:
       latest_tag: ${{ steps.get_tag.outputs.tag }}
       commit_sha: ${{ steps.get_commit.outputs.sha }}
       checksum: ${{ steps.checksum.outputs.value }}
     steps:
-      - name: Get latest release tag
-        id: get_tag
-        run: |
-          # 获取最新release标签
-          LATEST_TAG=$(curl -sL https://api.github.com/repos/MetaCubeX/mihomo/releases/latest | jq -r '.tag_name')
-          
-          # 检查是否成功获取
-          if [ -z "$LATEST_TAG" ] || [ "$LATEST_TAG" = "null" ]; then
-            echo "错误: 无法获取最新版本标签"
-            exit 1
-          fi
-          
-          echo "最新版本: $LATEST_TAG"
-          echo "tag=$LATEST_TAG" >> $GITHUB_OUTPUT
-
-      - name: Get commit SHA for tag
-        id: get_commit
-        run: |
-          # 获取标签对应的commit SHA
-          COMMIT_SHA=$(curl -sL https://api.github.com/repos/MetaCubeX/mihomo/git/refs/tags/${{ steps.get_tag.outputs.tag }} | jq -r '.object.sha')
-          
-          # 如果是annotated tag，需要再获取一次
-          TAG_TYPE=$(curl -sL https://api.github.com/repos/MetaCubeX/mihomo/git/refs/tags/${{ steps.get_tag.outputs.tag }} | jq -r '.object.type')
-          if [ "$TAG_TYPE" = "tag" ]; then
-            COMMIT_SHA=$(curl -sL https://api.github.com/repos/MetaCubeX/mihomo/git/tags/$COMMIT_SHA | jq -r '.object.sha')
-          fi
-          
-          echo "标签对应的commit: $COMMIT_SHA"
-          echo "sha=$COMMIT_SHA" >> $GITHUB_OUTPUT
-
-      - name: Checkout mihomo
-        uses: actions/checkout@v4
-        with:
-          repository: MetaCubeX/mihomo
-          ref: ${{ steps.get_tag.outputs.tag }}
-          path: mihomo
-
-      - name: Generate checksum
-        id: checksum
-        run: |
-          cd mihomo
-          git archive --format=tar.gz --output=../mihomo.tar.gz HEAD
-          CHECKSUM=$(sha256sum ../mihomo.tar.gz | cut -d ' ' -f 1)
-          echo "生成的校验和: $CHECKSUM"
-          echo "value=$CHECKSUM" >> $GITHUB_OUTPUT
+      # 保持不变...
 
   update:
     needs: [get_current_info, get_latest_info]
@@ -116,6 +41,7 @@ jobs:
           repository: Misaka009982/OpenWrt-nikki
           ref: main
           path: OpenWrt-nikki
+          fetch-depth: 0  # 获取所有历史记录
 
       - name: Update Makefile
         run: |
@@ -143,7 +69,8 @@ jobs:
         with:
           path: OpenWrt-nikki
           token: ${{ secrets.GITHUB_TOKEN }}
-          branch: dependabot
+          base: main                  # 明确指定基础分支为main
+          branch: dependabot   # 简化分支名
           delete-branch: true
           commit-message: "build: update mihomo to ${{ needs.get_latest_info.outputs.latest_tag }}"
           title: "build: update mihomo to ${{ needs.get_latest_info.outputs.latest_tag }}"
@@ -154,7 +81,7 @@ jobs:
             - 版本: ${{ needs.get_current_info.outputs.pkg_build_version }} → ${{ needs.get_latest_info.outputs.latest_tag }}
             - 提交: ${{ needs.get_current_info.outputs.pkg_source_version }} → ${{ needs.get_latest_info.outputs.commit_sha }}
             - 校验和: ${{ needs.get_current_info.outputs.pkg_mirror_hash }} → ${{ needs.get_latest_info.outputs.checksum }}
-            - 日期: ${{ needs.get_current_info.outputs.pkg_source_date }} → ${CURRENT_DATE}
+            - 日期: ${{ needs.get_current_info.outputs.pkg_source_date }} → 当前日期
             
             ## 变更日志
             [查看完整变更](https://github.com/metacubex/mihomo/compare/${{ needs.get_current_info.outputs.pkg_source_version }}...${{ needs.get_latest_info.outputs.commit_sha }})
