@@ -75,12 +75,60 @@ jobs:
           echo "short_commit_sha=$(echo ${{ env.COMMIT_SHA }} | cut -c1-7)" >> $GITHUB_OUTPUT
           echo "tag_name=${{ env.LATEST_TAG }}" >> $GITHUB_OUTPUT
           
-          # 创建压缩包并计算校验和
-          git -C mihomo config tar.xz.command "xz -c"
-          git -C mihomo archive --output=mihomo.tar.xz HEAD
-          CHECKSUM=$(sha256sum mihomo.tar.xz | cut -d ' ' -f 1)
-          echo "checksum=$CHECKSUM" >> $GITHUB_OUTPUT
-          echo "校验和: $CHECKSUM"
+          # 下载 release 二进制文件并计算校验和
+          # 尝试多种可能的下载 URL 格式
+          download_success=false
+          
+          # 尝试格式 1: 使用标签名称
+          DOWNLOAD_URL="https://github.com/MetaCubeX/mihomo/releases/download/${LATEST_TAG}/mihomo-linux-arm64-${LATEST_TAG}.gz"
+          echo "尝试下载 release 文件 (格式 1): $DOWNLOAD_URL"
+          if curl -s -I "$DOWNLOAD_URL" | grep -q "HTTP/2 200"; then
+            echo "找到发布文件，开始下载..."
+            curl -L -o "mihomo-release.gz" "$DOWNLOAD_URL"
+            RELEASE_CHECKSUM=$(sha256sum mihomo-release.gz | cut -d ' ' -f 1)
+            echo "release 文件校验和: $RELEASE_CHECKSUM"
+            echo "checksum=$RELEASE_CHECKSUM" >> $GITHUB_OUTPUT
+            download_success=true
+          fi
+          
+          # 尝试格式 2: 使用 latest
+          if [ "$download_success" = false ]; then
+            DOWNLOAD_URL="https://github.com/MetaCubeX/mihomo/releases/download/latest/mihomo-linux-arm64-${LATEST_TAG}.gz"
+            echo "尝试下载 release 文件 (格式 2): $DOWNLOAD_URL"
+            if curl -s -I "$DOWNLOAD_URL" | grep -q "HTTP/2 200"; then
+              echo "找到发布文件，开始下载..."
+              curl -L -o "mihomo-release.gz" "$DOWNLOAD_URL"
+              RELEASE_CHECKSUM=$(sha256sum mihomo-release.gz | cut -d ' ' -f 1)
+              echo "release 文件校验和: $RELEASE_CHECKSUM"
+              echo "checksum=$RELEASE_CHECKSUM" >> $GITHUB_OUTPUT
+              download_success=true
+            fi
+          fi
+          
+          # 尝试格式 3: 使用 'latest' 标签但无版本号
+          if [ "$download_success" = false ]; then
+            DOWNLOAD_URL="https://github.com/MetaCubeX/mihomo/releases/download/latest/mihomo-linux-arm64.gz"
+            echo "尝试下载 release 文件 (格式 3): $DOWNLOAD_URL"
+            if curl -s -I "$DOWNLOAD_URL" | grep -q "HTTP/2 200"; then
+              echo "找到发布文件，开始下载..."
+              curl -L -o "mihomo-release.gz" "$DOWNLOAD_URL"
+              RELEASE_CHECKSUM=$(sha256sum mihomo-release.gz | cut -d ' ' -f 1)
+              echo "release 文件校验和: $RELEASE_CHECKSUM"
+              echo "checksum=$RELEASE_CHECKSUM" >> $GITHUB_OUTPUT
+              download_success=true
+            fi
+          fi
+          
+          # 如果所有尝试都失败，则使用源代码打包方式
+          if [ "$download_success" = false ]; then
+            echo "发布文件不存在，尝试使用源代码打包方式..."
+            # 创建压缩包并计算校验和
+            git -C mihomo config tar.xz.command "xz -c"
+            git -C mihomo archive --output=mihomo.tar.xz HEAD
+            CHECKSUM=$(sha256sum mihomo.tar.xz | cut -d ' ' -f 1)
+            echo "源代码包校验和: $CHECKSUM"
+            echo "checksum=$CHECKSUM" >> $GITHUB_OUTPUT
+          fi
   update:
     needs:
       - get_current_info
@@ -107,13 +155,25 @@ jobs:
           git fetch --all
           git branch -a
           
+      - id: verify_hash
+        name: 验证校验和
+        run: |
+          # 检查是否有校验和
+          if [ -z "${{ needs.get_latest_info.outputs.checksum }}" ]; then
+            echo "警告：未获取到校验和，将生成一个占位值"
+            echo "CHECKSUM=skip" >> $GITHUB_ENV
+          else
+            echo "获取到校验和: ${{ needs.get_latest_info.outputs.checksum }}"
+            echo "CHECKSUM=${{ needs.get_latest_info.outputs.checksum }}" >> $GITHUB_ENV
+          fi
+          
       - id: update
         name: update
         run: |
           sed -i "s/PKG_RELEASE:=.*/PKG_RELEASE:=1/" OpenWrt-nikki/nikki/Makefile
           sed -i "s/PKG_SOURCE_DATE:=.*/PKG_SOURCE_DATE:=${{ needs.get_latest_info.outputs.commit_date }}/" OpenWrt-nikki/nikki/Makefile
           sed -i "s/PKG_SOURCE_VERSION:=.*/PKG_SOURCE_VERSION:=${{ needs.get_latest_info.outputs.commit_sha }}/" OpenWrt-nikki/nikki/Makefile
-          sed -i "s/PKG_MIRROR_HASH:=.*/PKG_MIRROR_HASH:=${{ needs.get_latest_info.outputs.checksum }}/" OpenWrt-nikki/nikki/Makefile
+          sed -i "s/PKG_MIRROR_HASH:=.*/PKG_MIRROR_HASH:=${{ env.CHECKSUM }}/" OpenWrt-nikki/nikki/Makefile
           sed -i "s/PKG_BUILD_VERSION:=.*/PKG_BUILD_VERSION:=${{ needs.get_latest_info.outputs.tag_name }}/" OpenWrt-nikki/nikki/Makefile
           
       - id: create_pr
