@@ -99,15 +99,7 @@ jobs:
         
             # 显示文件信息
             ls -lh nikki-$FORMATTED_DATE~$SHORT_REF.tar.zst
-    
-              # 计算哈希值
-              HASH=$(sha256sum mihomo-$FORMATTED_DATE~$SHORT_REF.tar.zst | cut -d ' ' -f 1)
-              echo "OpenWrt格式哈希值: $HASH"
-              echo "hash=$HASH" >> $GITHUB_OUTPUT
-    
-              # 显示文件信息
-              ls -lh mihomo-$FORMATTED_DATE~$SHORT_REF.tar.zst
-          
+
   update:
     needs:
       - get_current_info
