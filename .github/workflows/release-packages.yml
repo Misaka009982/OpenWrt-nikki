@@ -178,7 +178,7 @@ jobs:
       - name: upload artifacts by arch
         uses: actions/upload-artifact@v4
         with:
-          name: nikki-ipk-${{ matrix.arch }}
+          name: nikki-ipk-${{ matrix.arch }}-${{ matrix.branch }}
           path: release_files_${{ matrix.arch }}/*.ipk
           if-no-files-found: warn
 
