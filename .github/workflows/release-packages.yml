@@ -3,12 +3,18 @@ name: release-packages
 on:
   workflow_dispatch:
   push:
-    tags:
-      - Nikki-*
+    branches:
+      - main
+    paths-ignore:
+      - 'README.md'
+      - 'docs/**'
+      - '.github/**'
+      - 'LICENSE'
 
 jobs:
   release:
     name: ${{ matrix.arch }}-${{ matrix.branch }} release
+    if: contains(github.event.head_commit.message, 'update mihomo to')
     runs-on: ubuntu-latest
     continue-on-error: true
     strategy:
@@ -121,11 +127,6 @@ jobs:
             cp "$NIKKI_IPK" "release_files/$NIKKI_VERSION"
             echo "创建了自定义命名的IPK文件: $NIKKI_VERSION"
             echo "nikki_file=$NIKKI_VERSION" >> $GITHUB_OUTPUT
-            
-            # 也复制原始nikki包到发布目录（仅用于调试）
-            FILENAME=$(basename "$NIKKI_IPK")
-            cp "$NIKKI_IPK" "release_files/original-$FILENAME"
-            echo "复制原始nikki包: $NIKKI_IPK"
           else
             echo "错误: 找不到nikki IPK文件!"
             echo "搜索bin/packages/目录的所有IPK文件:"
@@ -144,8 +145,9 @@ jobs:
       - name: release
         uses: softprops/action-gh-release@v2
         with:
-          name: 'Nikki v${{ steps.version.outputs.build_version }}'
+          name: 'Update mihomo to v${{ steps.version.outputs.build_version }}'
           tag_name: latest
+          body: '同步mihomo-v${{ steps.version.outputs.build_version }}'
           files: |
             release_files/*.ipk
 
@@ -172,8 +174,32 @@ jobs:
       - name: prepare feed
         run: |
           mkdir -p public
-          cp -r downloaded_ipks/* public/
-          ls -la public/
+          
+          # 遍历下载的文件并按branch/arch分类存放
+          find ./downloaded_ipks -type f -name "*.ipk" | while read ipk_file; do
+            filename=$(basename "$ipk_file")
+            
+            # 提取架构和OpenWrt版本信息
+            if [[ "$filename" =~ -([^-]+)-([^-]+)\.ipk$ ]]; then
+              arch="${BASH_REMATCH[1]}"
+              branch="${BASH_REMATCH[2]}"
+              
+              # 创建目标目录
+              mkdir -p "public/$branch/$arch"
+              
+              # 复制文件并重命名为nikki.ipk
+              cp "$ipk_file" "public/$branch/$arch/nikki.ipk"
+              echo "已存放: $branch/$arch/nikki.ipk (源文件: $filename)"
+            else
+              echo "警告: 无法解析文件名: $filename"
+              # 将无法解析的文件放入根目录
+              cp "$ipk_file" "public/"
+            fi
+          done
+          
+          # 列出生成的目录结构
+          echo "生成的目录结构:"
+          find public -type f | sort
       
       - name: feed
         uses: peaceiris/actions-gh-pages@v4
@@ -181,4 +207,4 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./public
           force_orphan: true
-          commit_message: "release: Nikki v${{ steps.version.outputs.build_version }}"
+          commit_message: "release: 同步mihomo v${{ steps.version.outputs.build_version }}"
