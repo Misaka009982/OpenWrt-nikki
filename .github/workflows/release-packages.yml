@@ -124,8 +124,8 @@ jobs:
           - i386_pentium4
           - x86_64
         branch:
-          - openwrt-23.05
-          - openwrt-24.10
+          #- openwrt-23.05
+          #- openwrt-24.10
           - SNAPSHOT
         exclude:
           - arch: aarch64_cortex-a76
@@ -154,6 +154,10 @@ jobs:
         run: |
           # 创建发布目录
           mkdir -p release_files
+
+          # 列出bin/packages/目录的内容
+          echo "bin/packages/目录的内容:"
+          ls -la bin/packages/
           
           # 只查找nikki包的ipk文件
           NIKKI_IPK=$(find bin/packages/ -name "nikki_*.ipk" -type f | head -n 1)
