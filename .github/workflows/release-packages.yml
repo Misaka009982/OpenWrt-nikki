@@ -30,7 +30,6 @@ jobs:
           FEEDNAME: nikki
           PACKAGES: "luci-app-nikki"
           INDEX: 0
-          KEY_BUILD: ${{ secrets.KEY_BUILD }}
           NO_REFRESH_CHECK: true
           BUILD_LOG: "V=sc"
           BUILD_OPTS: "-j1 --force-depends"
@@ -78,10 +77,6 @@ jobs:
         run: |
           for file in feed_nikki_*.tar.gz; do tar -x -z -f "$file"; done
       
-      - name: key
-        run: |
-          echo "${{ secrets.KEY_BUILD_PUB }}" > public/key-build.pub
-
       - name: feed
         uses: peaceiris/actions-gh-pages@v4
         with:
