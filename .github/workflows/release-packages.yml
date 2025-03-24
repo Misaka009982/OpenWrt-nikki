@@ -88,11 +88,11 @@ jobs:
             echo "创建并推送新标签: $TAG_NAME"
           else
             echo "标签 $TAG_NAME 已存在，跳过创建"
-            # git tag -d "$TAG_NAME" 2>/dev/null || true
             # 继续执行发布步骤
             echo "继续执行发布步骤"
+            # 确保使用最新的标签名称
+            TAG_NAME="${{ steps.version.outputs.tag_name }}"
           fi
-          
 
   release:
     name: ${{ matrix.arch }}-${{ matrix.branch }} release
