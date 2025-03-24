@@ -88,9 +88,11 @@ jobs:
             echo "创建并推送新标签: $TAG_NAME"
           else
             echo "标签 $TAG_NAME 已存在，跳过创建"
-            # 删除本地标签（如果存在）
-            git tag -d "$TAG_NAME" 2>/dev/null || true
+            # git tag -d "$TAG_NAME" 2>/dev/null || true
+            # 继续执行发布步骤
+            echo "继续执行发布步骤"
           fi
+          
 
   release:
     name: ${{ matrix.arch }}-${{ matrix.branch }} release
