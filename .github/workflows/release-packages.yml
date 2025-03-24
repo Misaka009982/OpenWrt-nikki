@@ -185,7 +185,7 @@ jobs:
       - name: release
         uses: softprops/action-gh-release@v2
         with:
-          name: '${{ $TAG_NAME }}'
+          name: '${{ steps.version.outputs.tag_name }}'
           tag_name: latest
           body: '同步mihomo-v${{ needs.version.outputs.build_version }}'
           files: |
