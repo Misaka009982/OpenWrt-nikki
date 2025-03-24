@@ -31,7 +31,7 @@ jobs:
           echo "Building version: $PKG_BUILD_VERSION"
           
           # 设置标签名
-          TAG_NAME="Nikki-v$PKG_BUILD_VERSION"
+          TAG_NAME="Nikki-$PKG_BUILD_VERSION"
           echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
           
           # 检查标签是否已存在
@@ -55,7 +55,7 @@ jobs:
           INDEX: 0
           NO_REFRESH_CHECK: true
           BUILD_LOG: "V=sc"
-          BUILD_OPTS: "-j1 --force-depends"
+          BUILD_OPTS: "-j$(nproc) --force-depends"
           IGNORE_ERRORS: "1"
           IGNORE_DEPS: "1"
           EXTRA_PKGS: "libc ca-bundle curl yq firewall4 ip-full kmod-inet-diag kmod-nft-socket kmod-nft-tproxy kmod-tun luci-base"
