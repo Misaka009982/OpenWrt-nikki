@@ -12,44 +12,15 @@ on:
       - 'LICENSE'
 
 jobs:
-  release:
-    name: ${{ matrix.arch }}-${{ matrix.branch }} release
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, 'update mihomo to')
+  version:
+    name: extract version and create tag
     runs-on: ubuntu-latest
-    continue-on-error: true
-    strategy:
-      fail-fast: false
-      matrix:
-        arch:
-          - arm_cortex-a5_vfpv4
-          - arm_cortex-a7_neon-vfpv4
-          - arm_cortex-a8_vfpv3
-          - arm_cortex-a9
-          - arm_cortex-a9_vfpv3-d16
-          - arm_cortex-a9_neon
-          - arm_cortex-a15_neon-vfpv4
-          - aarch64_cortex-a53
-          - aarch64_cortex-a72
-          - aarch64_cortex-a76
-          - aarch64_generic
-          - mips_24kc
-          - mips_4kec
-          - mips_mips32
-          - mipsel_24kc
-          - mipsel_24kc_24kf
-          - mipsel_74kc
-          - mipsel_mips32
-          - mips64_octeonplus
-          - i386_pentium4
-          - x86_64
-        branch:
-          - openwrt-23.05
-          - openwrt-24.10
-          - SNAPSHOT
-        exclude:
-          - arch: aarch64_cortex-a76
-            branch: openwrt-23.05
-
+    outputs:
+      build_version: ${{ steps.version.outputs.build_version }}
+      source_date: ${{ steps.version.outputs.source_date }}
+      pkg_version: ${{ steps.version.outputs.pkg_version }}
+      pkg_name: ${{ steps.version.outputs.pkg_name }}
+      tag_name: ${{ steps.version.outputs.tag_name }}
     steps:
       - name: checkout
         uses: actions/checkout@v4
@@ -104,7 +75,7 @@ jobs:
           echo "pkg_name=$PKG_NAME" >> $GITHUB_OUTPUT
           
           # 设置标签名
-          TAG_NAME="Nikki-$PKG_BUILD_VERSION"
+          TAG_NAME="Nikki-v$PKG_BUILD_VERSION"
           echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
           
           # 检查标签是否已存在
@@ -117,7 +88,52 @@ jobs:
             echo "创建并推送新标签: $TAG_NAME"
           else
             echo "标签 $TAG_NAME 已存在，跳过创建"
+            # 删除本地标签（如果存在）
+            git tag -d "$TAG_NAME" 2>/dev/null || true
           fi
+
+  release:
+    name: ${{ matrix.arch }}-${{ matrix.branch }} release
+    needs: version
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, 'update mihomo to')
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - arm_cortex-a5_vfpv4
+          - arm_cortex-a7_neon-vfpv4
+          - arm_cortex-a8_vfpv3
+          - arm_cortex-a9
+          - arm_cortex-a9_vfpv3-d16
+          - arm_cortex-a9_neon
+          - arm_cortex-a15_neon-vfpv4
+          - aarch64_cortex-a53
+          - aarch64_cortex-a72
+          - aarch64_cortex-a76
+          - aarch64_generic
+          - mips_24kc
+          - mips_4kec
+          - mips_mips32
+          - mipsel_24kc
+          - mipsel_24kc_24kf
+          - mipsel_74kc
+          - mipsel_mips32
+          - mips64_octeonplus
+          - i386_pentium4
+          - x86_64
+        branch:
+          - openwrt-23.05
+          - openwrt-24.10
+          - SNAPSHOT
+        exclude:
+          - arch: aarch64_cortex-a76
+            branch: openwrt-23.05
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
 
       - name: build
         uses: openwrt/gh-action-sdk@main
@@ -143,7 +159,7 @@ jobs:
           NIKKI_IPK=$(find bin/packages/ -name "nikki_*.ipk" -type f | head -n 1)
           if [ -n "$NIKKI_IPK" ]; then
             # 使用Makefile中的版本号（带v前缀）
-            BUILD_VERSION="${{ steps.version.outputs.build_version }}"
+            BUILD_VERSION="${{ needs.version.outputs.build_version }}"
             OPENWRT_VERSION="${{ matrix.branch }}"
             
             # 创建自定义命名的文件 - 新格式: nikki-{版本号}-{架构}-{openwrt系统}.ipk
@@ -169,9 +185,9 @@ jobs:
       - name: release
         uses: softprops/action-gh-release@v2
         with:
-          name: 'Update mihomo to v${{ steps.version.outputs.build_version }}'
+          name: '${{ $TAG_NAME }}'
           tag_name: latest
-          body: '同步mihomo-v${{ steps.version.outputs.build_version }}'
+          body: '同步mihomo-v${{ needs.version.outputs.build_version }}'
           files: |
             release_files/*.ipk
 
@@ -232,4 +248,4 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./public
           force_orphan: true
-          commit_message: "release: 同步mihomo v${{ steps.version.outputs.build_version }}"
+          commit_message: "release: 同步mihomo v${{ needs.version.outputs.build_version }}"
