@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - v*
+      - Nikki-*
 
 jobs:
   release:
@@ -22,6 +22,29 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v4
+
+      - name: extract version and create tag
+        id: version
+        run: |
+          # 从Makefile中提取PKG_BUILD_VERSION
+          PKG_BUILD_VERSION=$(grep "PKG_BUILD_VERSION:=" -m 1 Makefile | cut -d '=' -f2 | tr -d ' ')
+          echo "Building version: $PKG_BUILD_VERSION"
+          
+          # 设置标签名
+          TAG_NAME="Nikki-v$PKG_BUILD_VERSION"
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          
+          # 检查标签是否已存在
+          if ! git ls-remote --tags origin | grep -q "refs/tags/$TAG_NAME"; then
+            # 创建并推送标签
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action"
+            git tag -a "$TAG_NAME" -m "Release $TAG_NAME"
+            git push origin "$TAG_NAME"
+            echo "Created and pushed new tag: $TAG_NAME"
+          else
+            echo "Tag $TAG_NAME already exists, skipping tag creation"
+          fi
 
       - name: build
         uses: openwrt/gh-action-sdk@main
@@ -50,6 +73,7 @@ jobs:
           tar -c -z -f feed_nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz public/${{ matrix.branch }}/${{ matrix.arch }}
 
       - name: release
+        if: startsWith(github.ref, 'refs/tags/Nikki-')
         uses: softprops/action-gh-release@v2
         with:
           files: |
