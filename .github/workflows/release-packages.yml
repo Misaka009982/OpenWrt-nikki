@@ -16,6 +16,7 @@ jobs:
       matrix:
         arch:
           - aarch64_cortex-a53
+          - mipsel_24kc
         branch:
           - openwrt-23.05
 
@@ -26,9 +27,51 @@ jobs:
       - name: extract version and create tag
         id: version
         run: |
-          # 从Makefile中提取PKG_BUILD_VERSION
-          PKG_BUILD_VERSION=$(grep "PKG_BUILD_VERSION:=" -m 1 Makefile | cut -d '=' -f2 | tr -d ' ')
-          echo "Building version: $PKG_BUILD_VERSION"
+          # 指定Makefile的准确路径
+          MAKEFILE_PATH="nikki/Makefile"
+          
+          # 如果指定路径不存在，尝试查找
+          if [ ! -f "$MAKEFILE_PATH" ]; then
+            echo "指定的Makefile不存在，尝试查找..."
+            MAKEFILE_PATH=$(find . -type f -name "Makefile" | grep -E "nikki/Makefile|Makefile" | head -n 1)
+            
+            if [ -z "$MAKEFILE_PATH" ]; then
+              echo "错误: 无法找到Makefile文件"
+              exit 1
+            fi
+          fi
+          
+          echo "找到Makefile: $MAKEFILE_PATH"
+          
+          # 提取重要信息
+          PKG_BUILD_VERSION=$(grep "PKG_BUILD_VERSION:=" -m 1 "$MAKEFILE_PATH" | cut -d '=' -f2 | tr -d ' ')
+          PKG_SOURCE_DATE=$(grep "PKG_SOURCE_DATE:=" -m 1 "$MAKEFILE_PATH" | cut -d '=' -f2 | tr -d ' ')
+          PKG_NAME=$(grep "PKG_NAME:=" -m 1 "$MAKEFILE_PATH" | cut -d '=' -f2 | tr -d ' ')
+          PKG_VERSION=$(grep "PKG_SOURCE_VERSION:=" -m 1 "$MAKEFILE_PATH" | cut -d '=' -f2 | tr -d ' ' | cut -c 1-8)
+          
+          echo "PKG_NAME: $PKG_NAME"
+          echo "PKG_VERSION: $PKG_VERSION"
+          
+          # 如果无法提取版本，使用默认值
+          if [ -z "$PKG_BUILD_VERSION" ]; then
+            PKG_BUILD_VERSION="1.0.0"
+            echo "无法从Makefile提取版本，使用默认值: $PKG_BUILD_VERSION"
+          else
+            echo "提取的版本号: $PKG_BUILD_VERSION"
+          fi
+          
+          if [ -z "$PKG_SOURCE_DATE" ]; then
+            PKG_SOURCE_DATE=$(date +%Y-%m-%d)
+            echo "无法从Makefile提取日期，使用当前日期: $PKG_SOURCE_DATE"
+          else
+            echo "提取的日期: $PKG_SOURCE_DATE"
+          fi
+          
+          # 保存提取的信息供后续步骤使用
+          echo "build_version=$PKG_BUILD_VERSION" >> $GITHUB_OUTPUT
+          echo "source_date=$PKG_SOURCE_DATE" >> $GITHUB_OUTPUT
+          echo "pkg_version=$PKG_VERSION" >> $GITHUB_OUTPUT
+          echo "pkg_name=$PKG_NAME" >> $GITHUB_OUTPUT
           
           # 设置标签名
           TAG_NAME="Nikki-$PKG_BUILD_VERSION"
@@ -41,9 +84,9 @@ jobs:
             git config --local user.name "GitHub Action"
             git tag -a "$TAG_NAME" -m "Release $TAG_NAME"
             git push origin "$TAG_NAME"
-            echo "Created and pushed new tag: $TAG_NAME"
+            echo "创建并推送新标签: $TAG_NAME"
           else
-            echo "Tag $TAG_NAME already exists, skipping tag creation"
+            echo "标签 $TAG_NAME 已存在，跳过创建"
           fi
 
       - name: build
@@ -60,30 +103,47 @@ jobs:
           IGNORE_DEPS: "1"
           EXTRA_PKGS: "libc ca-bundle curl yq firewall4 ip-full kmod-inet-diag kmod-nft-socket kmod-nft-tproxy kmod-tun luci-base"
 
-      - name: compress
+      - name: prepare release files
+        id: prepare
         run: |
-          mkdir -p bin/packages/${{ matrix.arch }}/nikki
-          mkdir -p public/${{ matrix.branch }}/${{ matrix.arch }}
+          # 创建发布目录
+          mkdir -p release_files
           
-          # 创建一个空的README文件，确保目录不为空
-          echo "This directory intentionally left empty" > bin/packages/${{ matrix.arch }}/nikki/README.md
+          # 查找所有构建的ipk文件
+          find bin/packages/ -name "*.ipk" -type f | while read ipk_file; do
+            # 复制到发布目录
+            cp "$ipk_file" release_files/
+            echo "找到IPK文件: $ipk_file"
+          done
           
-          tar -c -z -f nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz -C bin/packages/${{ matrix.arch }}/nikki .
-          mv bin/packages/${{ matrix.arch }}/nikki public/${{ matrix.branch }}/${{ matrix.arch }}
-          tar -c -z -f feed_nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz public/${{ matrix.branch }}/${{ matrix.arch }}
+          # 特别为nikki包创建带版本号的文件名
+          NIKKI_IPK=$(find bin/packages/ -name "nikki_*.ipk" -type f | head -n 1)
+          if [ -n "$NIKKI_IPK" ]; then
+            NIKKI_VERSION="nikki-${{ steps.version.outputs.source_date }}-${{ steps.version.outputs.pkg_version }}-${{ matrix.arch }}.ipk"
+            cp "$NIKKI_IPK" "release_files/$NIKKI_VERSION"
+            echo "创建了自定义命名的IPK文件: $NIKKI_VERSION"
+            echo "nikki_file=$NIKKI_VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "警告: 找不到nikki IPK文件"
+            find bin/packages/ -type f -name "*.ipk" | sort
+          fi
+          
+          # 列出准备好的文件
+          echo "发布文件列表:"
+          ls -la release_files/
 
       - name: release
         if: startsWith(github.ref, 'refs/tags/Nikki-')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz
+            release_files/*
 
       - name: upload
         uses: actions/upload-artifact@v4
         with:
-          name: feed_nikki_${{ matrix.arch }}-${{ matrix.branch }}
-          path: feed_nikki_${{ matrix.arch }}-${{ matrix.branch }}.tar.gz
+          name: nikki-ipk-files
+          path: release_files/*.ipk
 
   feed:
     needs: release
