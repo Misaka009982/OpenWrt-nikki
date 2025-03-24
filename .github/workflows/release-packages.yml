@@ -33,8 +33,10 @@ jobs:
           KEY_BUILD: ${{ secrets.KEY_BUILD }}
           NO_REFRESH_CHECK: true
           BUILD_LOG: "V=sc"
-          BUILD_OPTS: "-j1"
+          BUILD_OPTS: "-j1 --force-depends"
           IGNORE_ERRORS: "1"
+          IGNORE_DEPS: "1"
+          EXTRA_PKGS: "libc ca-bundle curl yq firewall4 ip-full kmod-inet-diag kmod-nft-socket kmod-nft-tproxy kmod-tun luci-base"
 
       - name: compress
         run: |
