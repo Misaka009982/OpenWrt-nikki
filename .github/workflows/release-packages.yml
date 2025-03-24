@@ -124,9 +124,8 @@ jobs:
           - i386_pentium4
           - x86_64
         branch:
-          #- openwrt-23.05
-          #- openwrt-24.10
-          - SNAPSHOT
+          - openwrt-23.05
+          - openwrt-24.10
         exclude:
           - arch: aarch64_cortex-a76
             branch: openwrt-23.05
@@ -226,7 +225,7 @@ jobs:
             
             # 提取架构和OpenWrt版本信息
             if [[ "$filename" =~ -([^-]+)-([^-]+)\.ipk$ ]]; then
-              arch="${BASH_REMATCH[1]}"
+              arch="${{ matrix.arch }}"
               branch="${BASH_REMATCH[2]}"
               
               # 创建目标目录
