@@ -112,23 +112,19 @@ jobs:
           # 只查找nikki包的ipk文件
           NIKKI_IPK=$(find bin/packages/ -name "nikki_*.ipk" -type f | head -n 1)
           if [ -n "$NIKKI_IPK" ]; then
-            # 提取文件名和版本信息
-            FILENAME=$(basename "$NIKKI_IPK")
-            FILE_VERSION=$(echo "$FILENAME" | grep -o -E "[0-9]{4}-[0-9]{2}-[0-9]{2}-[a-z0-9]{8}")
+            # 使用Makefile中的版本号（带v前缀）
+            BUILD_VERSION="${{ steps.version.outputs.build_version }}"
+            OPENWRT_VERSION="${{ matrix.branch }}"
             
-            # 如果无法提取，使用来自Makefile的信息
-            if [ -z "$FILE_VERSION" ]; then
-              FILE_VERSION="${{ steps.version.outputs.source_date }}-${{ steps.version.outputs.pkg_version }}"
-            fi
-            
-            # 创建自定义命名的文件
-            NIKKI_VERSION="nikki-${FILE_VERSION}-${{ matrix.arch }}.ipk"
+            # 创建自定义命名的文件 - 新格式: nikki-{版本号}-{架构}-{openwrt系统}.ipk
+            NIKKI_VERSION="nikki-v${BUILD_VERSION}-${{ matrix.arch }}-${OPENWRT_VERSION}.ipk"
             cp "$NIKKI_IPK" "release_files/$NIKKI_VERSION"
             echo "创建了自定义命名的IPK文件: $NIKKI_VERSION"
             echo "nikki_file=$NIKKI_VERSION" >> $GITHUB_OUTPUT
             
-            # 也复制原始nikki包到发布目录
-            cp "$NIKKI_IPK" "release_files/"
+            # 也复制原始nikki包到发布目录（仅用于调试）
+            FILENAME=$(basename "$NIKKI_IPK")
+            cp "$NIKKI_IPK" "release_files/original-$FILENAME"
             echo "复制原始nikki包: $NIKKI_IPK"
           else
             echo "错误: 找不到nikki IPK文件!"
@@ -149,8 +145,8 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/Nikki-')
         uses: softprops/action-gh-release@v2
         with:
-          name: 'Nikki ${{ steps.version.outputs.build_version }} (${{ matrix.arch }})'
-          tag_name: ${{ github.ref_name }}
+          name: 'Nikki v${{ steps.version.outputs.build_version }}'
+          tag_name: latest
           files: |
             release_files/*.ipk
 
@@ -186,4 +182,4 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./public
           force_orphan: true
-          commit_message: "release: ${{ github.ref_name }}"
+          commit_message: "release: Nikki v${{ steps.version.outputs.build_version }}"
