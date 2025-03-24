@@ -29,11 +29,12 @@ jobs:
           ARCH: ${{ matrix.arch }}-${{ matrix.branch }}
           FEEDNAME: nikki
           PACKAGES: ""
-          INDEX: 1
+          INDEX: 0
           KEY_BUILD: ${{ secrets.KEY_BUILD }}
           NO_REFRESH_CHECK: true
           BUILD_LOG: "V=sc"
           BUILD_OPTS: "-j1"
+          IGNORE_ERRORS: "1"
 
       - name: compress
         run: |
