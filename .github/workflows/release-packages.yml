@@ -190,7 +190,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: '${{ steps.version.outputs.tag_name }}'
-          tag_name: latest
+          tag_name: '${{ steps.version.outputs.tag_name }}'
           body: '同步mihomo-v${{ needs.version.outputs.build_version }}'
           files: |
             release_files/*.ipk
