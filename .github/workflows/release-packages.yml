@@ -128,6 +128,7 @@ jobs:
         branch:
           - openwrt-23.05
           - openwrt-24.10
+          - SNAPSHOT
         exclude:
           - arch: aarch64_cortex-a76
             branch: openwrt-23.05
@@ -159,6 +160,7 @@ jobs:
           # 列出bin/packages/目录的内容
           echo "bin/packages/目录的内容:"
           ls -la bin/packages/
+          ls -la bin/packages/${{ matrix.arch }}/
           
           # 只查找nikki包的ipk文件
           NIKKI_IPK=$(find bin/packages/ -name "nikki_*.ipk" -type f | head -n 1)
@@ -228,7 +230,7 @@ jobs:
             # 提取架构和OpenWrt版本信息
             if [[ "$filename" =~ -([^-]+)-([^-]+)\.ipk$ ]]; then
               arch="${{ matrix.arch }}"
-              branch="${BASH_REMATCH[2]}"
+              branch="${{ matrix.branch }}"
               
               # 创建目标目录
               mkdir -p "public/$branch/$arch"
