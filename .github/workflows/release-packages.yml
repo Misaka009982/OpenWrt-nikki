@@ -157,10 +157,9 @@ jobs:
           # 创建发布目录
           mkdir -p release_files
 
-          # 列出bin/packages/目录的内容
-          echo "bin/packages/目录的内容:"
-          ls -la bin/packages/
-          ls -la bin/packages/${{ matrix.arch }}/
+          # 列出bin/packages及其子目录的所有文件
+          echo "bin/packages目录及其子目录的内容:"
+          find bin/packages -type f
           
           # 只查找nikki包的ipk文件
           NIKKI_IPK=$(find bin/packages/ -name "nikki_*.ipk" -type f | head -n 1)
