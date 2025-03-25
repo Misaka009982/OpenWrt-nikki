@@ -157,32 +157,38 @@ jobs:
           # 创建发布目录
           mkdir -p release_files
 
-          # 列出bin/packages及其子目录的所有文件
-          echo "bin/packages目录及其子目录的内容:"
-          find bin/packages -type f
           
-          # 只查找nikki包的ipk文件
-          NIKKI_IPK=$(find bin/packages/ -name "nikki_*.ipk" -type f | head -n 1)
-          if [ -n "$NIKKI_IPK" ]; then
+          # 根据分支类型查找文件
+          if [[ "${{ matrix.branch }}" == "SNAPSHOT" ]]; then
+            # 查找apk文件
+            NIKKI_FILE=$(find bin/packages/ -name "nikki_*.apk" -type f | head -n 1)
+            FILE_TYPE="apk"
+          else
+            # 查找ipk文件
+            NIKKI_FILE=$(find bin/packages/ -name "nikki_*.ipk" -type f | head -n 1)
+            FILE_TYPE="ipk"
+          fi
+
+          if [ -n "$NIKKI_FILE" ]; then
             # 使用Makefile中的版本号（带v前缀）
             BUILD_VERSION="${{ needs.version.outputs.build_version }}"
             OPENWRT_VERSION="${{ matrix.branch }}"
             
-            # 创建自定义命名的文件 - 新格式: nikki-{版本号}-{架构}-{openwrt系统}.ipk
-            NIKKI_VERSION="nikki-v${BUILD_VERSION}-${{ matrix.arch }}-${OPENWRT_VERSION}.ipk"
-            cp "$NIKKI_IPK" "release_files/$NIKKI_VERSION"
-            echo "创建了自定义命名的IPK文件: $NIKKI_VERSION"
+            # 创建自定义命名的文件 - 新格式: nikki-{版本号}-{架构}-{openwrt系统}.{文件类型}
+            NIKKI_VERSION="nikki-v${BUILD_VERSION}-${{ matrix.arch }}-${OPENWRT_VERSION}.${FILE_TYPE}"
+            cp "$NIKKI_FILE" "release_files/$NIKKI_VERSION"
+            echo "创建了自定义命名的${FILE_TYPE}文件: $NIKKI_VERSION"
             echo "nikki_file=$NIKKI_VERSION" >> $GITHUB_OUTPUT
           else
-            echo "错误: 找不到nikki IPK文件!"
-            echo "搜索bin/packages/目录的所有IPK文件:"
-            find bin/packages/ -type f -name "*.ipk" | sort
+            echo "错误: 找不到nikki ${FILE_TYPE}文件!"
+            echo "搜索bin/packages/目录的所有${FILE_TYPE}文件:"
+            find bin/packages/ -type f -name "*.${FILE_TYPE}" | sort
             exit 1
           fi
           
           # 将nikki包复制到以架构命名的子目录
           mkdir -p "release_files_${{ matrix.arch }}"
-          cp release_files/*.ipk "release_files_${{ matrix.arch }}/"
+          cp release_files/*.${FILE_TYPE} "release_files_${{ matrix.arch }}/"
           
           # 列出准备好的文件
           echo "发布文件列表:"
@@ -193,16 +199,15 @@ jobs:
         with:
           name: '${{ needs.version.outputs.tag_name }}'
           tag_name: '${{ needs.version.outputs.tag_name }}'
-          body: '同步mihomo-v${{ needs.version.outputs.build_version }}'
+          body: '同步${{ needs.version.outputs.source_date }} mihomo v${{ needs.version.outputs.build_version }}'
           files: |
-            release_files/*.ipk
-          token: ${{ secrets.GITHUB_TOKEN }}
+            release_files/*.${{ matrix.branch == 'SNAPSHOT' && 'apk' || 'ipk' }}
 
       - name: upload artifacts by arch
         uses: actions/upload-artifact@v4
         with:
-          name: nikki-ipk-${{ matrix.arch }}-${{ matrix.branch }}
-          path: release_files_${{ matrix.arch }}/*.ipk
+          name: nikki-${{ matrix.branch == 'SNAPSHOT' && 'apk' || 'ipk' }}-${{ matrix.arch }}-${{ matrix.branch }}
+          path: release_files_${{ matrix.arch }}/*.${{ matrix.branch == 'SNAPSHOT' && 'apk' || 'ipk' }}
           if-no-files-found: warn
 
   feed:
@@ -215,7 +220,7 @@ jobs:
       - name: download
         uses: actions/download-artifact@v4
         with:
-          pattern: nikki-ipk-*
+          pattern: nikki-*
           merge-multiple: true
           path: ./downloaded_ipks
       
@@ -224,24 +229,24 @@ jobs:
           mkdir -p public
           
           # 遍历下载的文件并按branch/arch分类存放
-          find ./downloaded_ipks -type f -name "*.ipk" | while read ipk_file; do
-            filename=$(basename "$ipk_file")
+          find ./downloaded_ipks -type f -name "*.${{ matrix.branch == 'SNAPSHOT' && 'apk' || 'ipk' }}" | while read file; do
+            filename=$(basename "$file")
             
             # 提取架构和OpenWrt版本信息
-            if [[ "$filename" =~ -([^-]+)-([^-]+)\.ipk$ ]]; then
+            if [[ "$filename" =~ -([^-]+)-([^-]+)\.${{ matrix.branch == 'SNAPSHOT' && 'apk' || 'ipk' }}$ ]]; then
               arch="${{ matrix.arch }}"
               branch="${{ matrix.branch }}"
               
               # 创建目标目录
               mkdir -p "public/$branch/$arch"
               
-              # 复制文件并重命名为nikki.ipk
-              cp "$ipk_file" "public/$branch/$arch/nikki.ipk"
-              echo "已存放: $branch/$arch/nikki.ipk (源文件: $filename)"
+              # 复制文件并重命名为nikki.${{ matrix.branch == 'SNAPSHOT' && 'apk' || 'ipk' }}
+              cp "$file" "public/$branch/$arch/nikki.${{ matrix.branch == 'SNAPSHOT' && 'apk' || 'ipk' }}"
+              echo "已存放: $branch/$arch/nikki.${{ matrix.branch == 'SNAPSHOT' && 'apk' || 'ipk' }} (源文件: $filename)"
             else
               echo "警告: 无法解析文件名: $filename"
               # 将无法解析的文件放入根目录
-              cp "$ipk_file" "public/"
+              cp "$file" "public/"
             fi
           done
           
@@ -255,4 +260,4 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./public
           force_orphan: true
-          commit_message: "release: 同步mihomo v${{ needs.version.outputs.build_version }}"
+          commit_message: "release: 同步${{ needs.version.outputs.ssource_date }} mihomo v${{ needs.version.outputs.build_version }}"
