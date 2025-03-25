@@ -60,6 +60,9 @@ jobs:
             echo "获取到的最新标签: $LATEST_TAG"
           fi
           
+          # 将 LATEST_TAG 赋值给 tag_name 输出
+          echo "tag_name=$LATEST_TAG" >> $GITHUB_OUTPUT
+          
           # 获取标签引用详情
           TAG_INFO=$(curl -s https://api.github.com/repos/MetaCubeX/mihomo/git/ref/tags/$LATEST_TAG)
           COMMIT_SHA=$(echo $TAG_INFO | jq -r '.object.sha')
@@ -362,8 +365,8 @@ jobs:
             echo "已存在更新到 v${{ env.TAG_NAME }} 的 PR，跳过创建新 PR"
           else
             # 使用 GitHub CLI 创建 PR
-            gh pr create --title "build: update mihomo to v${{ env.TAG_NAME }}" \
-                         --body "将 mihomo 更新到最新版本: v${{ env.TAG_NAME }}
+            gh pr create --title "build: update mihomo to ${{ env.TAG_NAME }}" \
+                         --body "将 mihomo 更新到最新版本: ${{ env.TAG_NAME }}
             
             提交日期: ${{ env.COMMIT_DATE }}
             提交SHA: ${{ env.COMMIT_SHA }}
