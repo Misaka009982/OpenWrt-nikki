@@ -191,8 +191,8 @@ jobs:
       - name: release
         uses: softprops/action-gh-release@v2
         with:
-          name: '${{ steps.version.outputs.tag_name }}'
-          tag_name: '${{ steps.version.outputs.tag_name }}'
+          name: '${{ needs.version.outputs.tag_name }}'
+          tag_name: '${{ needs.version.outputs.tag_name }}'
           body: '同步mihomo-v${{ needs.version.outputs.build_version }}'
           files: |
             release_files/*.ipk
