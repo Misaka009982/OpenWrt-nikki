@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "0 0 * * *"
   workflow_dispatch:
+    inputs:
+      version:
+        description: '指定版本，例如 v1.18.7'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -44,10 +49,16 @@ jobs:
       - id: fetch_latest_tag
         name: 获取最新标签和提交信息
         run: |
-          # 获取最新标签名
-          LATEST_TAG=$(curl -s https://api.github.com/repos/MetaCubeX/mihomo/tags | jq -r '.[0].name')
-          echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_ENV
-          echo "获取到的最新标签: $LATEST_TAG"
+          # 检查是否提供了版本输入
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            LATEST_TAG="${{ github.event.inputs.version }}"
+            echo "使用指定版本: $LATEST_TAG"
+          else
+            # 获取最新标签名
+            LATEST_TAG=$(curl -s https://api.github.com/repos/MetaCubeX/mihomo/tags | jq -r '.[0].name')
+            echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_ENV
+            echo "获取到的最新标签: $LATEST_TAG"
+          fi
           
           # 获取标签引用详情
           TAG_INFO=$(curl -s https://api.github.com/repos/MetaCubeX/mihomo/git/ref/tags/$LATEST_TAG)
