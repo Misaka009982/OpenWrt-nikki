@@ -62,7 +62,13 @@ jobs:
           
           # 将 LATEST_TAG 赋值给 tag_name 输出
           echo "tag_name=$LATEST_TAG" >> $GITHUB_OUTPUT
-          echo "tag_name: $tag_name"
+          
+          # 检查 tag_name 是否有值
+          if [ -z "$LATEST_TAG" ]; then
+            echo "tag_name 为空"
+          else
+            echo "tag_name=$LATEST_TAG"
+          fi
           
           # 获取标签引用详情
           TAG_INFO=$(curl -s https://api.github.com/repos/MetaCubeX/mihomo/git/ref/tags/$LATEST_TAG)
