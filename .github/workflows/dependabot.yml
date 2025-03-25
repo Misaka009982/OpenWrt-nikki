@@ -78,7 +78,6 @@ jobs:
           COMMIT_INFO=$(curl -s https://api.github.com/repos/MetaCubeX/mihomo/commits/$COMMIT_SHA)
           COMMIT_DATE=$(echo $COMMIT_INFO | jq -r '.commit.committer.date' | cut -d'T' -f1)
           echo "COMMIT_DATE=$COMMIT_DATE" >> $GITHUB_ENV
-          echo "提交日期: $COMMIT_DATE"
       
       - id: checkout
         name: 检出代码
