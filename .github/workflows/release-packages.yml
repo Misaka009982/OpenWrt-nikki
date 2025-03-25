@@ -157,14 +157,13 @@ jobs:
           # 创建发布目录
           mkdir -p release_files
 
-          
           # 根据分支类型查找文件
           if [[ "${{ matrix.branch }}" == "SNAPSHOT" ]]; then
-            # 查找apk文件
-            NIKKI_FILE=$(find bin/packages/ -name "nikki_*.apk" -type f | head -n 1)
+            # 查找nikki的apk文件
+            NIKKI_FILE=$(find bin/packages/ -name "nikki-*.apk" -type f | head -n 1)
             FILE_TYPE="apk"
           else
-            # 查找ipk文件
+            # 查找nikki的ipk文件
             NIKKI_FILE=$(find bin/packages/ -name "nikki_*.ipk" -type f | head -n 1)
             FILE_TYPE="ipk"
           fi
