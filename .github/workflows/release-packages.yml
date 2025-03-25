@@ -196,6 +196,7 @@ jobs:
           body: '同步mihomo-v${{ needs.version.outputs.build_version }}'
           files: |
             release_files/*.ipk
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: upload artifacts by arch
         uses: actions/upload-artifact@v4
