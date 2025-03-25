@@ -303,7 +303,7 @@ jobs:
           if grep -q "PKG_BUILD_VERSION:=" OpenWrt-nikki/nikki/Makefile; then
             # 根据标签或使用 alpha-SHORT_SHA 格式更新
             if [[ "${{ env.TAG_NAME }}" == v* ]]; then
-              # 使用标签中的版本号
+              # 使用标签中的版本号，去掉前缀 'v'
               VERSION=$(echo ${{ env.TAG_NAME }} | sed 's/^v//')
               sed -i '/PKG_BUILD_VERSION:=/c\PKG_BUILD_VERSION:='$VERSION OpenWrt-nikki/nikki/Makefile
             else
