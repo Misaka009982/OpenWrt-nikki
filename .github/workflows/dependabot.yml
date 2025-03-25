@@ -51,7 +51,7 @@ jobs:
         run: |
           # 检查是否提供了版本输入
           if [ -n "${{ github.event.inputs.version }}" ]; then
-            LATEST_TAG="${{ github.event.inputs.version }}"
+            echo "LATEST_TAG=${{ github.event.inputs.version }}" >> $GITHUB_ENV
             echo "使用指定版本: $LATEST_TAG"
           else
             # 获取最新标签名
@@ -59,17 +59,7 @@ jobs:
             echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_ENV
             echo "获取到的最新标签: $LATEST_TAG"
           fi
-          
-          # 将 LATEST_TAG 赋值给 tag_name 输出
-          echo "tag_name=$LATEST_TAG" >> $GITHUB_OUTPUT
-          
-          # 检查 tag_name 是否有值
-          if [ -z "$LATEST_TAG" ]; then
-            echo "tag_name 为空"
-          else
-            echo "tag_name=$LATEST_TAG"
-          fi
-          
+
           # 获取标签引用详情
           TAG_INFO=$(curl -s https://api.github.com/repos/MetaCubeX/mihomo/git/ref/tags/$LATEST_TAG)
           COMMIT_SHA=$(echo $TAG_INFO | jq -r '.object.sha')
