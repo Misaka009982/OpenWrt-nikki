@@ -51,7 +51,8 @@ jobs:
         run: |
           # 检查是否提供了版本输入
           if [ -n "${{ github.event.inputs.version }}" ]; then
-            echo "LATEST_TAG=${{ github.event.inputs.version }}" >> $GITHUB_ENV
+            echo "LATEST_TAG=${{ github.event.inputs.version }}"
+            echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_ENV
             echo "使用指定版本: $LATEST_TAG"
           else
             # 获取最新标签名
