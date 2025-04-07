@@ -320,15 +320,12 @@ jobs:
             echo "# Updated by GitHub Actions on $(date)" >> OpenWrt-nikki/nikki/Makefile
           fi
           
-      - id: create_pr
-        name: 创建 PR
+      - id: commit_changes
+        name: 直接提交到main分支
         run: |
           cd OpenWrt-nikki
           # 检查 Git 状态
           git status
-          
-          # 创建新分支
-          git checkout -b dependabot
           
           # 添加修改过的文件
           git add nikki/Makefile
@@ -348,30 +345,13 @@ jobs:
             HASH_SOURCE="源代码包"
           fi
           
-          # 提交变更（允许空提交以便工作流继续）
-          git commit -m "build: update mihomo to v${{ env.TAG_NAME }}" \
+          # 提交变更
+          git commit -m "build: update mihomo to ${{ env.TAG_NAME }}" \
                    -m "提交日期: ${{ env.COMMIT_DATE }}" \
                    -m "提交SHA: ${{ env.COMMIT_SHA }}" \
-                   -m "哈希值来源: $HASH_SOURCE" || echo "没有变更可提交，但继续执行"
+                   -m "哈希值来源: $HASH_SOURCE" || echo "没有变更可提交"
           
-          # 推送分支
-          git push --force origin dependabot
-          
-          # 检查是否已有相同主题的 PR
-          if gh pr list --state open --base main | grep -q "update mihomo to ${{ env.TAG_NAME }}"; then
-            echo "已存在更新到 v${{ env.TAG_NAME }} 的 PR，跳过创建新 PR"
-          else
-            # 使用 GitHub CLI 创建 PR
-            gh pr create --title "build: update mihomo to ${{ env.TAG_NAME }}" \
-                         --body "将 mihomo 更新到最新版本: ${{ env.TAG_NAME }}
-            
-            提交日期: ${{ env.COMMIT_DATE }}
-            提交SHA: ${{ env.COMMIT_SHA }}
-            哈希值: ${{ env.HASH_TO_USE }}
-            哈希来源: $HASH_SOURCE
-            
-            [发布详情](https://github.com/metacubex/mihomo/releases/tag/${{ env.TAG_NAME }})" \
-                         --base main || echo "创建 PR 失败，可能已存在"
-          fi
+          # 直接推送到main分支
+          git push origin main
         env:
           GITHUB_TOKEN: ${{ github.token }}
