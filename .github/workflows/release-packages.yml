@@ -5,8 +5,9 @@ on:
     branches:
       - main
     paths:
-      - '**/Makefile' # 只在 Makefile 更新时触发
-  workflow_dispatch: # 支持手动触发
+      - 'nikki/Makefile'
+      - '**/Makefile'
+  workflow_dispatch:
 
 jobs:
   version:
