@@ -178,4 +178,4 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: public
           force_orphan: true
-          commit_message: release: 同步${{ needs.version.outputs.source_date }} mihomo v${{ needs.version.outputs.build_version }}
+          commit_message: "release: 同步${{ needs.version.outputs.source_date }} mihomo v${{ needs.version.outputs.build_version }}"
