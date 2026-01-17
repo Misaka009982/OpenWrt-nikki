@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'nikki/Makefile'
+      - '**/Makefile'
   workflow_dispatch:
 
 jobs:
@@ -22,17 +23,19 @@ jobs:
       pkg_name: ${{ steps.version.outputs.pkg_name }}
       tag_name: ${{ steps.version.outputs.tag_name }}
     steps:
-      - uses: actions/checkout@v4
+      - name: checkout
+        uses: actions/checkout@v4
 
-      - id: version
+      - name: extract version and create tag
+        id: version
         run: |
           MAKEFILE_PATH="nikki/Makefile"
-          [ -f "$MAKEFILE_PATH" ] || MAKEFILE_PATH=$(find . -name Makefile | head -n1)
+          [ -f "$MAKEFILE_PATH" ] || MAKEFILE_PATH=$(find . -type f -name "Makefile" | head -n 1)
 
-          PKG_BUILD_VERSION=$(grep -m1 'PKG_BUILD_VERSION:=' "$MAKEFILE_PATH" | cut -d= -f2 | tr -d ' ')
-          PKG_SOURCE_DATE=$(grep -m1 'PKG_SOURCE_DATE:=' "$MAKEFILE_PATH" | cut -d= -f2 | tr -d ' ')
-          PKG_NAME=$(grep -m1 'PKG_NAME:=' "$MAKEFILE_PATH" | cut -d= -f2 | tr -d ' ')
-          PKG_VERSION=$(grep -m1 'PKG_SOURCE_VERSION:=' "$MAKEFILE_PATH" | cut -d= -f2 | cut -c1-8)
+          PKG_BUILD_VERSION=$(grep "PKG_BUILD_VERSION:=" -m1 "$MAKEFILE_PATH" | cut -d '=' -f2 | tr -d ' ')
+          PKG_SOURCE_DATE=$(grep "PKG_SOURCE_DATE:=" -m1 "$MAKEFILE_PATH" | cut -d '=' -f2 | tr -d ' ')
+          PKG_NAME=$(grep "PKG_NAME:=" -m1 "$MAKEFILE_PATH" | cut -d '=' -f2 | tr -d ' ')
+          PKG_VERSION=$(grep "PKG_SOURCE_VERSION:=" -m1 "$MAKEFILE_PATH" | cut -d '=' -f2 | tr -d ' ' | cut -c1-8)
 
           [ -n "$PKG_BUILD_VERSION" ] || PKG_BUILD_VERSION="1.0.0"
           [ -n "$PKG_SOURCE_DATE" ] || PKG_SOURCE_DATE=$(date +%Y-%m-%d)
@@ -56,7 +59,7 @@ jobs:
 # 2️⃣ 构建 & Release
 # ========================
   release:
-    name: ${{ matrix.arch }}-${{ matrix.branch }} release
+    name: ${{ matrix.arch }}-${{ matrix.display_version }} release
     needs: version
     if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, 'update mihomo to')
     runs-on: ubuntu-latest
@@ -64,35 +67,73 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch:
-          - arm_cortex-a5_vfpv4
-          - arm_cortex-a7_neon-vfpv4
-          - arm_cortex-a8_vfpv3
-          - arm_cortex-a9
-          - arm_cortex-a9_vfpv3-d16
-          - arm_cortex-a9_neon
-          - arm_cortex-a15_neon-vfpv4
-          - aarch64_cortex-a53
-          - aarch64_cortex-a72
-          - aarch64_cortex-a76
-          - aarch64_generic
-          - mips_24kc
-          - mips_4kec
-          - mips_mips32
-          - mipsel_24kc
-          - mipsel_24kc_24kf
-          - mipsel_74kc
-          - mipsel_mips32
-          - mips64_octeonplus
-          - i386_pentium4
-          - x86_64
-        branch:
-          - openwrt-23.05.5
-          - openwrt-24.10
-          - SNAPSHOT
-        exclude:
+        include:
+          # ---------- openwrt-23.05.5 架构 ----------
+          - arch: arm_cortex-a5_vfpv4
+            sdk_branch: openwrt-23.05
+            display_version: 23.05.5
+          - arch: arm_cortex-a7_neon-vfpv4
+            sdk_branch: openwrt-23.05
+            display_version: 23.05.5
+          - arch: arm_cortex-a8_vfpv3
+            sdk_branch: openwrt-23.05
+            display_version: 23.05.5
+          - arch: arm_cortex-a9
+            sdk_branch: openwrt-23.05
+            display_version: 23.05.5
+          - arch: arm_cortex-a9_vfpv3-d16
+            sdk_branch: openwrt-23.05
+            display_version: 23.05.5
+          - arch: arm_cortex-a9_neon
+            sdk_branch: openwrt-23.05
+            display_version: 23.05.5
+          - arch: arm_cortex-a15_neon-vfpv4
+            sdk_branch: openwrt-23.05
+            display_version: 23.05.5
+          - arch: aarch64_cortex-a53
+            sdk_branch: openwrt-23.05
+            display_version: 23.05.5
+          - arch: aarch64_cortex-a72
+            sdk_branch: openwrt-23.05
+            display_version: 23.05.5
+          - arch: aarch64_generic
+            sdk_branch: openwrt-23.05
+            display_version: 23.05.5
+          - arch: mips_24kc
+            sdk_branch: openwrt-23.05
+            display_version: 23.05.5
+          - arch: mips_4kec
+            sdk_branch: openwrt-23.05
+            display_version: 23.05.5
+          - arch: mips_mips32
+            sdk_branch: openwrt-23.05
+            display_version: 23.05.5
+          - arch: mipsel_24kc
+            sdk_branch: openwrt-23.05
+            display_version: 23.05.5
+          - arch: mipsel_24kc_24kf
+            sdk_branch: openwrt-23.05
+            display_version: 23.05.5
+          - arch: mipsel_74kc
+            sdk_branch: openwrt-23.05
+            display_version: 23.05.5
+          - arch: mipsel_mips32
+            sdk_branch: openwrt-23.05
+            display_version: 23.05.5
+          - arch: mips64_octeonplus
+            sdk_branch: openwrt-23.05
+            display_version: 23.05.5
+          - arch: i386_pentium4
+            sdk_branch: openwrt-23.05
+            display_version: 23.05.5
+          # ---------- openwrt-24.10 架构 ----------
+          - arch: x86_64
+            sdk_branch: openwrt-24.10
+            display_version: 24.10
+          # ---------- SNAPSHOT 架构 ----------
           - arch: aarch64_cortex-a76
-            branch: openwrt-23.05
+            sdk_branch: SNAPSHOT
+            display_version: SNAPSHOT
 
     steps:
       - uses: actions/checkout@v4
@@ -100,7 +141,7 @@ jobs:
       - name: build
         uses: openwrt/gh-action-sdk@main
         env:
-          ARCH: ${{ matrix.arch }}-${{ matrix.branch }}
+          ARCH: ${{ matrix.arch }}-${{ matrix.sdk_branch }}
           FEEDNAME: nikki
           PACKAGES: luci-app-nikki
           INDEX: 0
@@ -110,13 +151,13 @@ jobs:
           IGNORE_ERRORS: "1"
           IGNORE_DEPS: "1"
           EXTRA_PKGS: "libc ca-bundle curl yq firewall4 ip-full kmod-inet-diag kmod-nft-socket kmod-nft-tproxy kmod-tun luci-base"
-          SNAPSHOT: ${{ matrix.branch == 'SNAPSHOT' }}
+          SNAPSHOT: ${{ matrix.sdk_branch == 'SNAPSHOT' }}
 
       - name: prepare release files
         run: |
           mkdir -p release_files
 
-          if [ "${{ matrix.branch }}" = SNAPSHOT ]; then
+          if [ "${{ matrix.sdk_branch }}" = "SNAPSHOT" ]; then
             FILE=$(find bin/packages -name "nikki-*.apk" | head -n1)
             EXT=apk
           else
@@ -130,19 +171,19 @@ jobs:
             exit 1
           fi
 
-          NAME="nikki-v${{ needs.version.outputs.build_version }}-${{ matrix.arch }}-${{ matrix.branch }}.$EXT"
+          NAME="nikki-v${{ needs.version.outputs.build_version }}-${{ matrix.arch }}-${{ matrix.display_version }}.$EXT"
           cp "$FILE" "release_files/$NAME"
 
       - uses: softprops/action-gh-release@v2
         with:
           name: ${{ needs.version.outputs.tag_name }}
           tag_name: ${{ needs.version.outputs.tag_name }}
-          body: 同步${{ needs.version.outputs.source_date }} mihomo v${{ needs.version.outputs.build_version }}
+          body: "同步${{ needs.version.outputs.source_date }} mihomo v${{ needs.version.outputs.build_version }}"
           files: release_files/*
 
       - uses: actions/upload-artifact@v4
         with:
-          name: nikki-${{ matrix.arch }}-${{ matrix.branch }}
+          name: nikki-${{ matrix.arch }}-${{ matrix.display_version }}
           path: release_files/*
 
 # ========================
