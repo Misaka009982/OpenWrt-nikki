@@ -1,12 +1,15 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=nikki
+PKG_VERSION:=2026.01.16
+PKG_RELEASE:=1
 
+PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
+PKG_SOURCE_SUBDIR:=$(PKG_NAME)-$(PKG_VERSION)
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/MetaCubeX/mihomo.git
-PKG_SOURCE_DATE:=2026-01-16
-PKG_SOURCE_VERSION:=11000dccd77625ce31a54ccbeb053a539c5a5631
-PKG_MIRROR_HASH:=348c97a5983e9580513f82b01d74c6b2e1a7464aa898b5b9ca6b31395124d227
+PKG_SOURCE_VERSION:=v1.19.19
+PKG_MIRROR_HASH:=9cb98036dea407824704a161335c305906fcd3470db1675817415fcb50a9dfa4
 
 PKG_LICENSE:=GPL3.0+
 PKG_MAINTAINER:=Joseph Mory <morytyann@gmail.com>
@@ -15,12 +18,10 @@ PKG_BUILD_DEPENDS:=golang/host
 PKG_BUILD_PARALLEL:=1
 PKG_BUILD_FLAGS:=no-mips16
 
-PKG_BUILD_VERSION:=1.19.19
 PKG_BUILD_TIME:=$(shell date -u -Iseconds)
-PKG_VERSION := $(PKG_BUILD_VERSION)
 
 GO_PKG:=github.com/metacubex/mihomo
-GO_PKG_LDFLAGS_X:=$(GO_PKG)/constant.Version=$(PKG_BUILD_VERSION) $(GO_PKG)/constant.BuildTime=$(PKG_BUILD_TIME)
+GO_PKG_LDFLAGS_X:=$(GO_PKG)/constant.Version=$(PKG_SOURCE_VERSION) $(GO_PKG)/constant.BuildTime=$(PKG_BUILD_TIME)
 GO_PKG_TAGS:=with_gvisor
 
 include $(INCLUDE_DIR)/package.mk
@@ -32,7 +33,9 @@ define Package/nikki
   TITLE:=A rule based proxy in Go.
   URL:=https://wiki.metacubex.one
   DEPENDS:=$(GO_ARCH_DEPENDS) +ca-bundle +curl +yq firewall4 +ip-full +kmod-inet-diag +kmod-nft-socket +kmod-nft-tproxy +kmod-tun
-  PROVIDES:=nikki mihomo
+  PROVIDES:=mihomo
+  ALTERNATIVES:=\
+    300:/usr/bin/mihomo:/usr/libexec/nikki
 endef
 
 define Package/nikki/description
@@ -42,12 +45,13 @@ endef
 define Package/nikki/conffiles
 /etc/config/nikki
 /etc/nikki/mixin.yaml
-/etc/nikki/nftables/reserved_ip.nft
-/etc/nikki/nftables/reserved_ip6.nft
 endef
 
 define Package/nikki/install
-	$(call GoPackage/Package/Install/Bin,$(1))
+	$(call GoPackage/Package/Install/Bin,$(PKG_INSTALL_DIR))
+
+	$(INSTALL_DIR) $(1)/usr/libexec/
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/mihomo $(1)/usr/libexec/nikki
 
 	$(INSTALL_DIR) $(1)/etc/nikki
 	$(INSTALL_DIR) $(1)/etc/nikki/ucode
@@ -70,8 +74,6 @@ define Package/nikki/install
 	$(INSTALL_BIN) $(CURDIR)/files/scripts/firewall_include.sh $(1)/etc/nikki/scripts/firewall_include.sh
 	$(INSTALL_BIN) $(CURDIR)/files/scripts/debug.sh $(1)/etc/nikki/scripts/debug.sh
 
-	$(INSTALL_BIN) $(CURDIR)/files/nftables/reserved_ip.nft $(1)/etc/nikki/nftables/reserved_ip.nft
-	$(INSTALL_BIN) $(CURDIR)/files/nftables/reserved_ip6.nft $(1)/etc/nikki/nftables/reserved_ip6.nft
 	$(INSTALL_BIN) $(CURDIR)/files/nftables/geoip_cn.nft $(1)/etc/nikki/nftables/geoip_cn.nft
 	$(INSTALL_BIN) $(CURDIR)/files/nftables/geoip6_cn.nft $(1)/etc/nikki/nftables/geoip6_cn.nft
 
