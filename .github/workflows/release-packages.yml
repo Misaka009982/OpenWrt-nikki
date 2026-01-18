@@ -2,6 +2,9 @@ name: release-packages
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - v*
 
 jobs:
   # 提取 nikki 包的版本号
@@ -11,6 +14,7 @@ jobs:
     outputs:
       pkg_version: ${{ steps.version.outputs.pkg_version }}
       source_version: ${{ steps.version.outputs.source_version }}
+      sync_date: ${{ steps.version.outputs.sync_date }}
     steps:
       - name: checkout
         uses: actions/checkout@v4
@@ -38,9 +42,14 @@ jobs:
           PKG_SOURCE_VERSION_CLEAN=$(echo "$PKG_SOURCE_VERSION" | sed 's/^v//')
           echo "PKG_SOURCE_VERSION_CLEAN: $PKG_SOURCE_VERSION_CLEAN"
 
+          # 使用北京时间作为同步日期
+          SYNC_DATE=$(TZ="Asia/Shanghai" date +%Y-%m-%d)
+          echo "SYNC_DATE: $SYNC_DATE"
+
           # 输出版本号
           echo "pkg_version=$PKG_VERSION" >> $GITHUB_OUTPUT
           echo "source_version=$PKG_SOURCE_VERSION_CLEAN" >> $GITHUB_OUTPUT
+          echo "sync_date=$SYNC_DATE" >> $GITHUB_OUTPUT
 
   # 查询 OpenWrt 各分支的最新具体版本号
   resolve-versions:
@@ -194,9 +203,9 @@ jobs:
         name: release
         uses: softprops/action-gh-release@v2
         with:
-          name: 'Nikki-v${{ needs.get-version.outputs.source_version }}'
+          name: '同步${{ needs.get-version.outputs.sync_date }} mihomo v${{ needs.get-version.outputs.source_version }}'
           tag_name: 'Nikki-v${{ needs.get-version.outputs.source_version }}'
-          body: 'Build nikki ${{ needs.get-version.outputs.source_version }} for OpenWrt'
+          body: '同步${{ needs.get-version.outputs.sync_date }} mihomo v${{ needs.get-version.outputs.source_version }}'
           files: |
             release_files/*.${{ matrix.version == 'SNAPSHOT' && 'apk' || 'ipk' }}
 
