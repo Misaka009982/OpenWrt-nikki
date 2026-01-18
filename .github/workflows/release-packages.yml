@@ -5,14 +5,10 @@ on:
     branches:
       - main
     paths:
-      - 'nikki/Makefile'
       - '**/Makefile'
   workflow_dispatch:
 
 jobs:
-# ========================
-# 1️⃣ 提取版本 & 创建 Tag
-# ========================
   version:
     name: extract version and create tag
     runs-on: ubuntu-latest
@@ -29,37 +25,74 @@ jobs:
       - name: extract version and create tag
         id: version
         run: |
+          # 指定Makefile的准确路径
           MAKEFILE_PATH="nikki/Makefile"
-          [ -f "$MAKEFILE_PATH" ] || MAKEFILE_PATH=$(find . -type f -name "Makefile" | head -n 1)
-
-          PKG_BUILD_VERSION=$(grep "PKG_BUILD_VERSION:=" -m1 "$MAKEFILE_PATH" | cut -d '=' -f2 | tr -d ' ')
-          PKG_SOURCE_DATE=$(grep "PKG_SOURCE_DATE:=" -m1 "$MAKEFILE_PATH" | cut -d '=' -f2 | tr -d ' ')
-          PKG_NAME=$(grep "PKG_NAME:=" -m1 "$MAKEFILE_PATH" | cut -d '=' -f2 | tr -d ' ')
-          PKG_VERSION=$(grep "PKG_SOURCE_VERSION:=" -m1 "$MAKEFILE_PATH" | cut -d '=' -f2 | tr -d ' ' | cut -c1-8)
-
-          [ -n "$PKG_BUILD_VERSION" ] || PKG_BUILD_VERSION="1.0.0"
-          [ -n "$PKG_SOURCE_DATE" ] || PKG_SOURCE_DATE=$(date +%Y-%m-%d)
-
-          TAG_NAME="Nikki-v$PKG_BUILD_VERSION"
-
+          
+          # 如果指定路径不存在，尝试查找
+          if [ ! -f "$MAKEFILE_PATH" ]; then
+            echo "指定的Makefile不存在，尝试查找..."
+            MAKEFILE_PATH=$(find . -type f -name "Makefile" | grep -E "nikki/Makefile|Makefile" | head -n 1)
+            
+            if [ -z "$MAKEFILE_PATH" ]; then
+              echo "错误: 无法找到Makefile文件"
+              exit 1
+            fi
+          fi
+          
+          echo "找到Makefile: $MAKEFILE_PATH"
+          
+          # 提取重要信息
+          PKG_BUILD_VERSION=$(grep "PKG_BUILD_VERSION:=" -m 1 "$MAKEFILE_PATH" | cut -d '=' -f2 | tr -d ' ')
+          PKG_SOURCE_DATE=$(grep "PKG_SOURCE_DATE:=" -m 1 "$MAKEFILE_PATH" | cut -d '=' -f2 | tr -d ' ')
+          PKG_NAME=$(grep "PKG_NAME:=" -m 1 "$MAKEFILE_PATH" | cut -d '=' -f2 | tr -d ' ')
+          PKG_VERSION=$(grep "PKG_SOURCE_VERSION:=" -m 1 "$MAKEFILE_PATH" | cut -d '=' -f2 | tr -d ' ' | cut -c 1-8)
+          
+          echo "PKG_NAME: $PKG_NAME"
+          echo "PKG_VERSION: $PKG_VERSION"
+          
+          # 如果无法提取版本，使用默认值
+          if [ -z "$PKG_BUILD_VERSION" ]; then
+            PKG_BUILD_VERSION="1.0.0"
+            echo "无法从Makefile提取版本，使用默认值: $PKG_BUILD_VERSION"
+          else
+            echo "提取的版本号: $PKG_BUILD_VERSION"
+          fi
+          
+          if [ -z "$PKG_SOURCE_DATE" ]; then
+            PKG_SOURCE_DATE=$(date +%Y-%m-%d)
+            echo "无法从Makefile提取日期，使用当前日期: $PKG_SOURCE_DATE"
+          else
+            echo "提取的日期: $PKG_SOURCE_DATE"
+          fi
+          
+          # 保存提取的信息供后续步骤使用
           echo "build_version=$PKG_BUILD_VERSION" >> $GITHUB_OUTPUT
           echo "source_date=$PKG_SOURCE_DATE" >> $GITHUB_OUTPUT
           echo "pkg_version=$PKG_VERSION" >> $GITHUB_OUTPUT
           echo "pkg_name=$PKG_NAME" >> $GITHUB_OUTPUT
+          
+          # 设置标签名
+          TAG_NAME="Nikki-v$PKG_BUILD_VERSION"
           echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
-
+          
+          # 检查标签是否已存在
           if ! git ls-remote --tags origin | grep -q "refs/tags/$TAG_NAME"; then
-            git config user.name github-actions
-            git config user.email action@github.com
+            # 创建并推送标签
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action"
             git tag -a "$TAG_NAME" -m "Release $TAG_NAME"
             git push origin "$TAG_NAME"
+            echo "创建并推送新标签: $TAG_NAME"
+          else
+            echo "标签 $TAG_NAME 已存在，跳过创建"
+            # 继续执行发布步骤
+            echo "继续执行发布步骤"
+            # 确保使用最新的标签名称
+            TAG_NAME="${{ steps.version.outputs.tag_name }}"
           fi
 
-# ========================
-# 2️⃣ 构建 & Release
-# ========================
   release:
-    name: ${{ matrix.arch }}-${{ matrix.display_version }} release
+    name: ${{ matrix.arch }}-${{ matrix.branch }} release
     needs: version
     if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, 'update mihomo to')
     runs-on: ubuntu-latest
@@ -67,83 +100,46 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # ---------- openwrt-23.05.5 架构 ----------
-          - arch: arm_cortex-a5_vfpv4
-            sdk_branch: openwrt-23.05
-            display_version: 23.05.5
-          - arch: arm_cortex-a7_neon-vfpv4
-            sdk_branch: openwrt-23.05
-            display_version: 23.05.5
-          - arch: arm_cortex-a8_vfpv3
-            sdk_branch: openwrt-23.05
-            display_version: 23.05.5
-          - arch: arm_cortex-a9
-            sdk_branch: openwrt-23.05
-            display_version: 23.05.5
-          - arch: arm_cortex-a9_vfpv3-d16
-            sdk_branch: openwrt-23.05
-            display_version: 23.05.5
-          - arch: arm_cortex-a9_neon
-            sdk_branch: openwrt-23.05
-            display_version: 23.05.5
-          - arch: arm_cortex-a15_neon-vfpv4
-            sdk_branch: openwrt-23.05
-            display_version: 23.05.5
-          - arch: aarch64_cortex-a53
-            sdk_branch: openwrt-23.05
-            display_version: 23.05.5
-          - arch: aarch64_cortex-a72
-            sdk_branch: openwrt-23.05
-            display_version: 23.05.5
-          - arch: aarch64_generic
-            sdk_branch: openwrt-23.05
-            display_version: 23.05.5
-          - arch: mips_24kc
-            sdk_branch: openwrt-23.05
-            display_version: 23.05.5
-          - arch: mips_4kec
-            sdk_branch: openwrt-23.05
-            display_version: 23.05.5
-          - arch: mips_mips32
-            sdk_branch: openwrt-23.05
-            display_version: 23.05.5
-          - arch: mipsel_24kc
-            sdk_branch: openwrt-23.05
-            display_version: 23.05.5
-          - arch: mipsel_24kc_24kf
-            sdk_branch: openwrt-23.05
-            display_version: 23.05.5
-          - arch: mipsel_74kc
-            sdk_branch: openwrt-23.05
-            display_version: 23.05.5
-          - arch: mipsel_mips32
-            sdk_branch: openwrt-23.05
-            display_version: 23.05.5
-          - arch: mips64_octeonplus
-            sdk_branch: openwrt-23.05
-            display_version: 23.05.5
-          - arch: i386_pentium4
-            sdk_branch: openwrt-23.05
-            display_version: 23.05.5
-          # ---------- openwrt-24.10 架构 ----------
-          - arch: x86_64
-            sdk_branch: openwrt-24.10
-            display_version: 24.10
-          # ---------- SNAPSHOT 架构 ----------
+        arch:
+          - arm_cortex-a5_vfpv4
+          - arm_cortex-a7_neon-vfpv4
+          - arm_cortex-a8_vfpv3
+          - arm_cortex-a9
+          - arm_cortex-a9_vfpv3-d16
+          - arm_cortex-a9_neon
+          - arm_cortex-a15_neon-vfpv4
+          - aarch64_cortex-a53
+          - aarch64_cortex-a72
+          - aarch64_cortex-a76
+          - aarch64_generic
+          - mips_24kc
+          - mips_4kec
+          - mips_mips32
+          - mipsel_24kc
+          - mipsel_24kc_24kf
+          - mipsel_74kc
+          - mipsel_mips32
+          - mips64_octeonplus
+          - i386_pentium4
+          - x86_64
+        branch:
+          - openwrt-23.05
+          - openwrt-24.10
+          - SNAPSHOT
+        exclude:
           - arch: aarch64_cortex-a76
-            sdk_branch: SNAPSHOT
-            display_version: SNAPSHOT
+            branch: openwrt-23.05
 
     steps:
-      - uses: actions/checkout@v4
+      - name: checkout
+        uses: actions/checkout@v4
 
       - name: build
         uses: openwrt/gh-action-sdk@main
         env:
-          ARCH: ${{ matrix.arch }}-${{ matrix.sdk_branch }}
+          ARCH: ${{ matrix.arch }}-${{ matrix.branch }}
           FEEDNAME: nikki
-          PACKAGES: luci-app-nikki
+          PACKAGES: "luci-app-nikki"
           INDEX: 0
           NO_REFRESH_CHECK: true
           BUILD_LOG: "V=sc"
@@ -151,72 +147,113 @@ jobs:
           IGNORE_ERRORS: "1"
           IGNORE_DEPS: "1"
           EXTRA_PKGS: "libc ca-bundle curl yq firewall4 ip-full kmod-inet-diag kmod-nft-socket kmod-nft-tproxy kmod-tun luci-base"
-          SNAPSHOT: ${{ matrix.sdk_branch == 'SNAPSHOT' }}
 
       - name: prepare release files
+        id: prepare
         run: |
+          # 创建发布目录
           mkdir -p release_files
 
-          if [ "${{ matrix.sdk_branch }}" = "SNAPSHOT" ]; then
-            FILE=$(find bin/packages -name "nikki-*.apk" | head -n1)
-            EXT=apk
+          # 根据分支类型查找文件
+          if [[ "${{ matrix.branch }}" == "SNAPSHOT" ]]; then
+            # 查找nikki的apk文件
+            NIKKI_FILE=$(find bin/packages/ -name "nikki-*.apk" -type f | head -n 1)
+            FILE_TYPE="apk"
           else
-            FILE=$(find bin/packages -name "nikki_*.ipk" | head -n1)
-            EXT=ipk
+            # 查找nikki的ipk文件
+            NIKKI_FILE=$(find bin/packages/ -name "nikki_*.ipk" -type f | head -n 1)
+            FILE_TYPE="ipk"
           fi
 
-          if [ ! -f "$FILE" ]; then
-            echo "❌ 未找到产物"
-            find bin/packages -type f | sort
+          if [ -n "$NIKKI_FILE" ]; then
+            # 使用Makefile中的版本号（带v前缀）
+            BUILD_VERSION="${{ needs.version.outputs.build_version }}"
+            OPENWRT_VERSION="${{ matrix.branch }}"
+            
+            # 创建自定义命名的文件 - 新格式: nikki-{版本号}-{架构}-{openwrt系统}.{文件类型}
+            NIKKI_VERSION="nikki-v${BUILD_VERSION}-${{ matrix.arch }}-${OPENWRT_VERSION}.${FILE_TYPE}"
+            cp "$NIKKI_FILE" "release_files/$NIKKI_VERSION"
+            echo "创建了自定义命名的${FILE_TYPE}文件: $NIKKI_VERSION"
+            echo "nikki_file=$NIKKI_VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "错误: 找不到nikki ${FILE_TYPE}文件!"
+            echo "搜索bin/packages/目录的所有${FILE_TYPE}文件:"
+            find bin/packages/ -type f -name "*.${FILE_TYPE}" | sort
             exit 1
           fi
+          
+          # 将nikki包复制到以架构命名的子目录
+          mkdir -p "release_files_${{ matrix.arch }}"
+          cp release_files/*.${FILE_TYPE} "release_files_${{ matrix.arch }}/"
+          
+          # 列出准备好的文件
+          echo "发布文件列表:"
+          ls -la release_files/
 
-          NAME="nikki-v${{ needs.version.outputs.build_version }}-${{ matrix.arch }}-${{ matrix.display_version }}.$EXT"
-          cp "$FILE" "release_files/$NAME"
-
-      - uses: softprops/action-gh-release@v2
+      - name: release
+        uses: softprops/action-gh-release@v2
         with:
-          name: ${{ needs.version.outputs.tag_name }}
-          tag_name: ${{ needs.version.outputs.tag_name }}
-          body: "同步${{ needs.version.outputs.source_date }} mihomo v${{ needs.version.outputs.build_version }}"
-          files: release_files/*
+          name: '${{ needs.version.outputs.tag_name }}'
+          tag_name: '${{ needs.version.outputs.tag_name }}'
+          body: '同步${{ needs.version.outputs.source_date }} mihomo v${{ needs.version.outputs.build_version }}'
+          files: |
+            release_files/*.${{ matrix.branch == 'SNAPSHOT' && 'apk' || 'ipk' }}
 
-      - uses: actions/upload-artifact@v4
+      - name: upload artifacts by arch
+        uses: actions/upload-artifact@v4
         with:
-          name: nikki-${{ matrix.arch }}-${{ matrix.display_version }}
-          path: release_files/*
+          name: nikki-${{ matrix.branch == 'SNAPSHOT' && 'apk' || 'ipk' }}-${{ matrix.arch }}-${{ matrix.branch }}
+          path: release_files_${{ matrix.arch }}/*.${{ matrix.branch == 'SNAPSHOT' && 'apk' || 'ipk' }}
+          if-no-files-found: warn
 
-# ========================
-# 3️⃣ Feed
-# ========================
   feed:
-    needs: release
+    needs: [release]
+    name: feed
     runs-on: ubuntu-latest
     if: always()
 
     steps:
-      - uses: actions/download-artifact@v4
+      - name: download
+        uses: actions/download-artifact@v4
         with:
           pattern: nikki-*
           merge-multiple: true
-          path: downloaded
-
-      - run: |
+          path: ./downloaded_ipks
+      
+      - name: prepare feed
+        run: |
           mkdir -p public
-          for f in downloaded/*; do
-            name=$(basename "$f")
-            if [[ "$name" =~ nikki-v.+-(.+)-(.+)\.(ipk|apk)$ ]]; then
-              arch=${BASH_REMATCH[1]}
-              branch=${BASH_REMATCH[2]}
-              ext=${BASH_REMATCH[3]}
-              mkdir -p public/$branch/$arch
-              cp "$f" public/$branch/$arch/nikki.$ext
+          
+          # 遍历下载的文件并按branch/arch分类存放
+          find ./downloaded_ipks -type f -name "*.${{ matrix.branch == 'SNAPSHOT' && 'apk' || 'ipk' }}" | while read file; do
+            filename=$(basename "$file")
+            
+            # 提取架构和OpenWrt版本信息
+            if [[ "$filename" =~ -([^-]+)-([^-]+)\.${{ matrix.branch == 'SNAPSHOT' && 'apk' || 'ipk' }}$ ]]; then
+              arch="${{ matrix.arch }}"
+              branch="${{ matrix.branch }}"
+              
+              # 创建目标目录
+              mkdir -p "public/$branch/$arch"
+              
+              # 复制文件并重命名为nikki.${{ matrix.branch == 'SNAPSHOT' && 'apk' || 'ipk' }}
+              cp "$file" "public/$branch/$arch/nikki.${{ matrix.branch == 'SNAPSHOT' && 'apk' || 'ipk' }}"
+              echo "已存放: $branch/$arch/nikki.${{ matrix.branch == 'SNAPSHOT' && 'apk' || 'ipk' }} (源文件: $filename)"
+            else
+              echo "警告: 无法解析文件名: $filename"
+              # 将无法解析的文件放入根目录
+              cp "$file" "public/"
             fi
           done
-
-      - uses: peaceiris/actions-gh-pages@v4
+          
+          # 列出生成的目录结构
+          echo "生成的目录结构:"
+          find public -type f | sort
+      
+      - name: feed
+        uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: public
+          publish_dir: ./public
           force_orphan: true
-          commit_message: "release: 同步${{ needs.version.outputs.source_date }} mihomo v${{ needs.version.outputs.build_version }}"
+          commit_message: "release: 同步${{ needs.version.outputs.ssource_date }} mihomo v${{ needs.version.outputs.build_version }}"
