@@ -190,12 +190,12 @@ jobs:
           echo "发布文件列表:"
           ls -la release_files/
 
-      - if: github.event_name == 'push' && startsWith(github.ref_name, 'v')
+      - if: (github.event_name == 'push' && startsWith(github.ref_name, 'v')) || github.event_name == 'workflow_dispatch'
         name: release
         uses: softprops/action-gh-release@v2
         with:
-          name: 'Nikki v${{ needs.get-version.outputs.source_version }}'
-          tag_name: '${{ github.ref_name }}'
+          name: 'Nikki-v${{ needs.get-version.outputs.source_version }}'
+          tag_name: 'Nikki-v${{ needs.get-version.outputs.source_version }}'
           body: 'Build nikki ${{ needs.get-version.outputs.source_version }} for OpenWrt'
           files: |
             release_files/*.${{ matrix.version == 'SNAPSHOT' && 'apk' || 'ipk' }}
