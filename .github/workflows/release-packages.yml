@@ -2,23 +2,58 @@ name: release-packages
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - v*
 
 jobs:
-  # 查询各分支的最新具体版本号
+  # 提取 nikki 包的版本号
+  get-version:
+    name: extract nikki version
+    runs-on: ubuntu-latest
+    outputs:
+      pkg_version: ${{ steps.version.outputs.pkg_version }}
+      source_version: ${{ steps.version.outputs.source_version }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: extract version from Makefile
+        id: version
+        run: |
+          # 读取 nikki/Makefile
+          MAKEFILE_PATH="nikki/Makefile"
+
+          if [ ! -f "$MAKEFILE_PATH" ]; then
+            echo "错误: 找不到 $MAKEFILE_PATH"
+            exit 1
+          fi
+
+          # 提取 PKG_VERSION (nikki/mihomo 版本)
+          PKG_VERSION=$(grep "PKG_VERSION:=" "$MAKEFILE_PATH" | head -1 | cut -d'=' -f2 | tr -d ' ')
+          echo "PKG_VERSION: $PKG_VERSION"
+
+          # 提取 PKG_SOURCE_VERSION (mihomo tag 版本)
+          PKG_SOURCE_VERSION=$(grep "PKG_SOURCE_VERSION:=" "$MAKEFILE_PATH" | head -1 | cut -d'=' -f2 | tr -d ' ')
+          echo "PKG_SOURCE_VERSION: $PKG_SOURCE_VERSION"
+
+          # 去掉 v 前缀（如果有）
+          PKG_SOURCE_VERSION_CLEAN=$(echo "$PKG_SOURCE_VERSION" | sed 's/^v//')
+          echo "PKG_SOURCE_VERSION_CLEAN: $PKG_SOURCE_VERSION_CLEAN"
+
+          # 输出版本号
+          echo "pkg_version=$PKG_VERSION" >> $GITHUB_OUTPUT
+          echo "source_version=$PKG_SOURCE_VERSION_CLEAN" >> $GITHUB_OUTPUT
+
+  # 查询 OpenWrt 各分支的最新具体版本号
   resolve-versions:
-    name: resolve latest versions
+    name: resolve OpenWrt versions
     runs-on: ubuntu-latest
     outputs:
       versions: ${{ steps.resolve.outputs.versions }}
     steps:
-      - name: resolve latest versions
+      - name: resolve versions
         id: resolve
         run: |
           # 定义要查询的主版本
-          BRANCHES=("23.05" "24.10")
+          BRANCHES=("23.05" "24.10" "25.12")
 
           VERSIONS="["
           FIRST=true
@@ -57,21 +92,60 @@ jobs:
 
   release:
     name: ${{ matrix.arch }}-${{ matrix.version }} release
-    needs: resolve-versions
+    needs: [get-version, resolve-versions]
     runs-on: ubuntu-latest
     continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
         arch:
+          - arm_cortex-a5_vfpv4
+          - arm_cortex-a7_neon-vfpv4
+          - arm_cortex-a8_vfpv3
+          - arm_cortex-a9
+          - arm_cortex-a9_vfpv3-d16
+          - arm_cortex-a9_neon
+          - arm_cortex-a15_neon-vfpv4
           - aarch64_cortex-a53
+          - aarch64_cortex-a72
+          - aarch64_cortex-a76
+          - aarch64_generic
+          - mips_24kc
+          - mips_4kec
+          - mips_mips32
+          - mipsel_24kc
+          - mipsel_24kc_24kf
+          - mipsel_74kc
+          - mipsel_mips32
+          - mips64_octeonplus
+          - i386_pentium4
+          - x86_64
         version: ${{ fromJson(needs.resolve-versions.outputs.versions) }}
 
     steps:
       - name: checkout
         uses: actions/checkout@v4
 
+      - name: check exclusions
+        id: check
+        run: |
+          # 检查是否应该跳过此组合
+          SKIP=false
+
+          # aarch64_cortex-a76 不支持 23.05.x
+          if [[ "${{ matrix.arch }}" == "aarch64_cortex-a76" && "${{ matrix.version }}" == 23.05* ]]; then
+            SKIP=true
+          fi
+
+          # mips_4kec 不支持 25.12.x 和 SNAPSHOT
+          if [[ "${{ matrix.arch }}" == "mips_4kec" && ("${{ matrix.version }}" == 25.12* || "${{ matrix.version }}" == "SNAPSHOT") ]]; then
+            SKIP=true
+          fi
+
+          echo "skip=$SKIP" >> $GITHUB_OUTPUT
+
       - name: build
+        if: steps.check.outputs.skip != 'true'
         uses: openwrt/gh-action-sdk@main
         env:
           ARCH: ${{ matrix.arch }}-${{ matrix.version }}
@@ -83,6 +157,7 @@ jobs:
           NO_REFRESH_CHECK: true
 
       - name: prepare release files
+        if: steps.check.outputs.skip != 'true'
         id: prepare
         run: |
           mkdir -p release_files
@@ -97,8 +172,10 @@ jobs:
           fi
 
           if [ -n "$NIKKI_FILE" ]; then
-            # 重命名文件: nikki_{架构}-{版本}.{文件类型}
-            NEW_NAME="nikki_${{ matrix.arch }}-${{ matrix.version }}.${FILE_TYPE}"
+            # 使用 nikki 版本号作为文件名
+            # 格式: nikki_{mihomo版本}-{架构}-{openwrt版本}.{文件类型}
+            NIKKI_VERSION="${{ needs.get-version.outputs.source_version }}"
+            NEW_NAME="nikki_${NIKKI_VERSION}-${{ matrix.arch }}-${{ matrix.version }}.${FILE_TYPE}"
             cp "$NIKKI_FILE" "release_files/$NEW_NAME"
             echo "创建发布文件: $NEW_NAME"
             echo "nikki_file=$NEW_NAME" >> $GITHUB_OUTPUT
@@ -117,55 +194,15 @@ jobs:
         name: release
         uses: softprops/action-gh-release@v2
         with:
+          name: 'Nikki v${{ needs.get-version.outputs.source_version }}'
+          tag_name: '${{ github.ref_name }}'
+          body: 'Build nikki ${{ needs.get-version.outputs.source_version }} for OpenWrt'
           files: |
-            release_files/nikki_${{ matrix.arch }}-${{ matrix.version }}.${{ matrix.version == 'SNAPSHOT' && 'apk' || 'ipk' }}
+            release_files/*.${{ matrix.version == 'SNAPSHOT' && 'apk' || 'ipk' }}
 
       - name: upload
         uses: actions/upload-artifact@v4
         with:
-          name: nikki_${{ matrix.arch }}-${{ matrix.version }}
-          path: release_files/nikki_${{ matrix.arch }}-${{ matrix.version }}.${{ matrix.version == 'SNAPSHOT' && 'apk' || 'ipk' }}
-
-  feed:
-    needs: release
-    name: feed
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: download
-        uses: actions/download-artifact@v4
-        with:
-          pattern: nikki_*
-          merge-multiple: true
-          path: ./packages
-
-      - name: prepare
-        run: |
-          mkdir -p public
-
-          # 遍历下载的包文件，按版本/架构分类存放
-          for file in ./packages/nikki_*; do
-            if [ -f "$file" ]; then
-              filename=$(basename "$file")
-              # 解析文件名: nikki_{arch}-{version}.{ext}
-              if [[ "$filename" =~ ^nikki_(.+)-([0-9.]+|SNAPSHOT)\.(ipk|apk)$ ]]; then
-                arch="${BASH_REMATCH[1]}"
-                version="${BASH_REMATCH[2]}"
-                ext="${BASH_REMATCH[3]}"
-
-                mkdir -p "public/$version/$arch"
-                cp "$file" "public/$version/$arch/"
-                echo "已存放: $version/$arch/$filename"
-              fi
-            fi
-          done
-
-          echo "生成的目录结构:"
-          find public -type f | sort
-
-      - name: feed
-        uses: cloudflare/wrangler-action@v3
-        with:
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          command: pages deploy public --project-name=nikkinikki
+          name: nikki_${{ needs.get-version.outputs.source_version }}_${{ matrix.arch }}_${{ matrix.version }}
+          path: release_files/*.${{ matrix.version == 'SNAPSHOT' && 'apk' || 'ipk' }}
+          if-no-files-found: warn
