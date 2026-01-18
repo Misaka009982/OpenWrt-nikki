@@ -13,6 +13,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  workflows: write
 
 jobs:
   get_current_info:
@@ -353,5 +354,10 @@ jobs:
           
           # 直接推送到main分支
           git push origin main
+
+      - name: Trigger release-packages
+        if: success()
+        run: |
+          gh workflow run release-packages.yml
         env:
           GITHUB_TOKEN: ${{ github.token }}
