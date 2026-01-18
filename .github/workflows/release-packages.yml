@@ -62,7 +62,7 @@ jobs:
         id: resolve
         run: |
           # 定义要查询的主版本
-          BRANCHES=("23.05" "24.10" "25.12")
+          BRANCHES=("23.05" "24.10")
 
           VERSIONS="["
           FIRST=true
