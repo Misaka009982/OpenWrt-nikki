@@ -1,35 +1,71 @@
 name: release-packages
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - '**/Makefile'
   workflow_dispatch:
+  push:
+    tags:
+      - v*
 
 jobs:
+  # 查询各分支的最新具体版本号
+  resolve-versions:
+    name: resolve latest versions
+    runs-on: ubuntu-latest
+    outputs:
+      versions: ${{ steps.resolve.outputs.versions }}
+    steps:
+      - name: resolve latest versions
+        id: resolve
+        run: |
+          # 定义要查询的主版本
+          BRANCHES=("23.05" "24.10")
+
+          VERSIONS="["
+          FIRST=true
+
+          for BRANCH in "${BRANCHES[@]}"; do
+            # 从 OpenWrt 下载页面获取最新版本号
+            LATEST=$(curl -s "https://downloads.openwrt.org/releases/" | \
+              grep -oP "${BRANCH}\.\d+" | \
+              sort -V | \
+              tail -n 1)
+
+            if [ -n "$LATEST" ]; then
+              echo "分支 ${BRANCH} 的最新版本: ${LATEST}"
+              if [ "$FIRST" = true ]; then
+                VERSIONS="${VERSIONS}\"${LATEST}\""
+                FIRST=false
+              else
+                VERSIONS="${VERSIONS},\"${LATEST}\""
+              fi
+            else
+              echo "警告: 无法获取 ${BRANCH} 的最新版本，使用默认值"
+              if [ "$FIRST" = true ]; then
+                VERSIONS="${VERSIONS}\"${BRANCH}.0\""
+                FIRST=false
+              else
+                VERSIONS="${VERSIONS},\"${BRANCH}.0\""
+              fi
+            fi
+          done
+
+          # 添加 SNAPSHOT
+          VERSIONS="${VERSIONS},\"SNAPSHOT\"]"
+
+          echo "最终版本列表: $VERSIONS"
+          echo "versions=$VERSIONS" >> $GITHUB_OUTPUT
+
   release:
-    name: ${{ matrix.arch }}-${{ matrix.branch }} release
+    name: ${{ matrix.arch }}-${{ matrix.version }} release
+    needs: resolve-versions
     runs-on: ubuntu-latest
     continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
         arch:
-          - aarch64_cortex-a53      
-        branch:
-          - openwrt-23.05
-          - openwrt-24.10
-          - openwrt-25.12
-          - SNAPSHOT
-        exclude:
-          - arch: aarch64_cortex-a76
-            branch: openwrt-23.05
-          - arch: mips_4kec
-            branch: openwrt-25.12
-          - arch: mips_4kec
-            branch: SNAPSHOT
+          - aarch64_cortex-a53
+        version: ${{ fromJson(needs.resolve-versions.outputs.versions) }}
 
     steps:
       - name: checkout
@@ -38,7 +74,7 @@ jobs:
       - name: build
         uses: openwrt/gh-action-sdk@main
         env:
-          ARCH: ${{ matrix.arch }}-${{ matrix.branch }}
+          ARCH: ${{ matrix.arch }}-${{ matrix.version }}
           FEEDNAME: nikki
           PACKAGES: nikki
           INDEX: 1
@@ -51,8 +87,8 @@ jobs:
         run: |
           mkdir -p release_files
 
-          # 根据分支类型确定文件类型
-          if [[ "${{ matrix.branch }}" == "SNAPSHOT" ]]; then
+          # 根据版本类型确定文件类型
+          if [[ "${{ matrix.version }}" == "SNAPSHOT" ]]; then
             FILE_TYPE="apk"
             NIKKI_FILE=$(find bin/packages/ -name "nikki*.apk" -type f | head -n 1)
           else
@@ -61,8 +97,8 @@ jobs:
           fi
 
           if [ -n "$NIKKI_FILE" ]; then
-            # 重命名文件: nikki_{架构}-{分支}.{文件类型}
-            NEW_NAME="nikki_${{ matrix.arch }}-${{ matrix.branch }}.${FILE_TYPE}"
+            # 重命名文件: nikki_{架构}-{版本}.{文件类型}
+            NEW_NAME="nikki_${{ matrix.arch }}-${{ matrix.version }}.${FILE_TYPE}"
             cp "$NIKKI_FILE" "release_files/$NEW_NAME"
             echo "创建发布文件: $NEW_NAME"
             echo "nikki_file=$NEW_NAME" >> $GITHUB_OUTPUT
@@ -82,13 +118,13 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            release_files/nikki_${{ matrix.arch }}-${{ matrix.branch }}.${{ matrix.branch == 'SNAPSHOT' && 'apk' || 'ipk' }}
+            release_files/nikki_${{ matrix.arch }}-${{ matrix.version }}.${{ matrix.version == 'SNAPSHOT' && 'apk' || 'ipk' }}
 
       - name: upload
         uses: actions/upload-artifact@v4
         with:
-          name: nikki_${{ matrix.arch }}-${{ matrix.branch }}
-          path: release_files/nikki_${{ matrix.arch }}-${{ matrix.branch }}.${{ matrix.branch == 'SNAPSHOT' && 'apk' || 'ipk' }}
+          name: nikki_${{ matrix.arch }}-${{ matrix.version }}
+          path: release_files/nikki_${{ matrix.arch }}-${{ matrix.version }}.${{ matrix.version == 'SNAPSHOT' && 'apk' || 'ipk' }}
 
   feed:
     needs: release
@@ -107,19 +143,19 @@ jobs:
         run: |
           mkdir -p public
 
-          # 遍历下载的包文件，按分支/架构分类存放
+          # 遍历下载的包文件，按版本/架构分类存放
           for file in ./packages/nikki_*; do
             if [ -f "$file" ]; then
               filename=$(basename "$file")
-              # 解析文件名: nikki_{arch}-{branch}.{ext}
-              if [[ "$filename" =~ ^nikki_(.+)-([^.]+)\.(ipk|apk)$ ]]; then
+              # 解析文件名: nikki_{arch}-{version}.{ext}
+              if [[ "$filename" =~ ^nikki_(.+)-([0-9.]+|SNAPSHOT)\.(ipk|apk)$ ]]; then
                 arch="${BASH_REMATCH[1]}"
-                branch="${BASH_REMATCH[2]}"
+                version="${BASH_REMATCH[2]}"
                 ext="${BASH_REMATCH[3]}"
 
-                mkdir -p "public/$branch/$arch"
-                cp "$file" "public/$branch/$arch/"
-                echo "已存放: $branch/$arch/$filename"
+                mkdir -p "public/$version/$arch"
+                cp "$file" "public/$version/$arch/"
+                echo "已存放: $version/$arch/$filename"
               fi
             fi
           done
