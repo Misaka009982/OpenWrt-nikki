@@ -61,7 +61,7 @@ return view.extend({
             o.value(network.getName());
         }
 
-        o = s.taboption('general', form.ListValue, 'ipv6', _('IPv6'));
+        o = s.taboption('general', form.ListValue, 'ipv6', 'IPv6');
         o.optional = true;
         o.placeholder = _('Unmodified');
         o.value('0', _('Disable'));
@@ -88,7 +88,7 @@ return view.extend({
         o = s.taboption('general', form.Value, 'tcp_keep_alive_idle', _('TCP Keep Alive Idle'));
         o.datatype = 'uinteger';
         o.placeholder = _('Unmodified');
-        
+
         o = s.taboption('general', form.Value, 'tcp_keep_alive_interval', _('TCP Keep Alive Interval'));
         o.datatype = 'uinteger';
         o.placeholder = _('Unmodified');
@@ -103,9 +103,8 @@ return view.extend({
 
         s.tab('external_control', _('External Control Config'));
 
-        o = s.taboption('external_control', form.Value, 'ui_path', '*' + ' ' + _('UI Path'));
+        o = s.taboption('external_control', form.Value, 'ui_path', _('UI Path'));
         o.placeholder = _('Unmodified');
-        o.rmempty = false;
 
         o = s.taboption('external_control', form.Value, 'ui_name', _('UI Name'));
         o.placeholder = _('Unmodified');
@@ -118,10 +117,9 @@ return view.extend({
         o.value('https://github.com/MetaCubeX/Yacd-meta/archive/refs/heads/gh-pages.zip', 'YACD');
         o.value('https://github.com/MetaCubeX/Razord-meta/archive/refs/heads/gh-pages.zip', 'Razord');
 
-        o = s.taboption('external_control', form.Value, 'api_listen', '*' + ' ' + _('API Listen'));
+        o = s.taboption('external_control', form.Value, 'api_listen', _('API Listen'));
         o.datatype = 'ipaddrport(1)';
         o.placeholder = _('Unmodified');
-        o.rmempty = false;
 
         o = s.taboption('external_control', form.Value, 'api_secret', _('API Secret'));
         o.password = true;
@@ -153,15 +151,13 @@ return view.extend({
         o.datatype = 'port';
         o.placeholder = _('Unmodified');
 
-        o = s.taboption('inbound', form.Value, 'redir_port', '*' + ' ' + _('Redirect Port'));
+        o = s.taboption('inbound', form.Value, 'redir_port', _('Redirect Port'));
         o.datatype = 'port';
         o.placeholder = _('Unmodified');
-        o.rmempty = false;
 
-        o = s.taboption('inbound', form.Value, 'tproxy_port', '*' + ' ' + _('TPROXY Port'));
+        o = s.taboption('inbound', form.Value, 'tproxy_port', _('TPROXY Port'));
         o.datatype = 'port';
         o.placeholder = _('Unmodified');
-        o.rmempty = false;
 
         o = s.taboption('inbound', form.Flag, 'authentication', _('Overwrite Authentication'));
         o.rmempty = false;
@@ -186,9 +182,14 @@ return view.extend({
 
         s.tab('tun', _('TUN Config'));
 
-        o = s.taboption('tun', form.Value, 'tun_device', '*' + ' ' + _('Device Name'));
+        o = s.taboption('tun', form.ListValue, 'tun_enabled', _('Enable'));
+        o.optional = true;
         o.placeholder = _('Unmodified');
-        o.rmempty = false;
+        o.value('0', _('Disable'));
+        o.value('1', _('Enable'));
+
+        o = s.taboption('tun', form.Value, 'tun_device', _('Device Name'));
+        o.placeholder = _('Unmodified');
 
         o = s.taboption('tun', form.ListValue, 'tun_stack', _('Stack'));
         o.optional = true;
@@ -211,12 +212,6 @@ return view.extend({
         o.datatype = 'uinteger';
         o.placeholder = _('Unmodified');
 
-        o = s.taboption('tun', form.ListValue, 'tun_endpoint_independent_nat', _('Endpoint Independent NAT'));
-        o.optional = true;
-        o.placeholder = _('Unmodified');
-        o.value('0', _('Disable'));
-        o.value('1', _('Enable'));
-
         o = s.taboption('tun', form.Flag, 'tun_dns_hijack', _('Overwrite DNS Hijack'));
         o.rmempty = false;
 
@@ -228,26 +223,45 @@ return view.extend({
 
         s.tab('dns', _('DNS Config'));
 
-        o = s.taboption('dns', form.Value, 'dns_listen', '*' + ' ' + _('DNS Listen'));
-        o.datatype = 'ipaddrport(1)';
-        o.placeholder = _('Unmodified');
-        o.rmempty = false;
-
-        o = s.taboption('dns', form.ListValue, 'dns_ipv6', _('IPv6'));
+        o = s.taboption('dns', form.ListValue, 'dns_enabled', _('Enable'));
         o.optional = true;
         o.placeholder = _('Unmodified');
         o.value('0', _('Disable'));
         o.value('1', _('Enable'));
 
-        o = s.taboption('dns', form.ListValue, 'dns_mode', '*' + ' ' + _('DNS Mode'));
+        o = s.taboption('dns', form.ListValue, 'dns_cache_algorithm', _('DNS Cache Algorithm'));
+        o.optional = true;
+        o.placeholder = _('Unmodified');
+        o.value('lru', _('Least Recently Used (LRU)'));
+        o.value('arc', _('Adaptive Replacement Cache (ARC)'));
+
+        o = s.taboption('dns', form.Value, 'dns_listen', _('DNS Listen'));
+        o.datatype = 'ipaddrport(1)';
+        o.placeholder = _('Unmodified');
+
+        o = s.taboption('dns', form.ListValue, 'dns_ipv6', 'IPv6');
+        o.optional = true;
+        o.placeholder = _('Unmodified');
+        o.value('0', _('Disable'));
+        o.value('1', _('Enable'));
+
+        o = s.taboption('dns', form.ListValue, 'dns_mode', _('DNS Mode'));
+        o.optional = true;
         o.placeholder = _('Unmodified');
         o.value('redir-host', 'Redir-Host');
         o.value('fake-ip', 'Fake-IP');
 
-        o = s.taboption('dns', form.Value, 'fake_ip_range', '*' + ' ' + _('Fake-IP Range'));
+        o = s.taboption('dns', form.Value, 'fake_ip_range', _('Fake-IP Range'));
         o.datatype = 'cidr4';
         o.placeholder = _('Unmodified');
-        o.rmempty = false;
+
+        o = s.taboption('dns', form.Value, 'fake_ip6_range', _('Fake-IP6 Range'));
+        o.datatype = 'cidr6';
+        o.placeholder = _('Unmodified');
+
+        o = s.taboption('dns', form.Value, 'fake_ip_ttl', _('Fake-IP TTL'));
+        o.datatype = 'uinteger';
+        o.placeholder = _('Unmodified');
 
         o = s.taboption('dns', form.Flag, 'fake_ip_filter', _('Overwrite Fake-IP Filter'));
         o.rmempty = false;
@@ -275,6 +289,12 @@ return view.extend({
         o.value('1', _('Enable'));
 
         o = s.taboption('dns', form.ListValue, 'dns_doh_prefer_http3', _('DoH Prefer HTTP/3'));
+        o.optional = true;
+        o.placeholder = _('Unmodified');
+        o.value('0', _('Disable'));
+        o.value('1', _('Enable'));
+
+        o = s.taboption('dns', form.ListValue, 'dns_direct_nameserver_follow_policy', _('Direct Nameserver Follow Policy'));
         o.optional = true;
         o.placeholder = _('Unmodified');
         o.value('0', _('Disable'));
@@ -309,7 +329,7 @@ return view.extend({
         so = o.subsection.option(form.Value, 'domain_name', _('Domain Name'));
         so.rmempty = false;
 
-        so = o.subsection.option(form.DynamicList, 'ip', _('IP'));
+        so = o.subsection.option(form.DynamicList, 'ip', 'IP');
 
         o = s.taboption('dns', form.Flag, 'dns_nameserver', _('Overwrite Nameserver'));
         o.rmempty = false;
@@ -503,6 +523,7 @@ return view.extend({
         so.value('RULE-SET', _('Rule Set'));
         so.value('DOMAIN', _('Domain Name'));
         so.value('DOMAIN-SUFFIX', _('Domain Name Suffix'));
+        so.value('DOMAIN-WILDCARD', _('Domain Name Wildcard'));
         so.value('DOMAIN-KEYWORD', _('Domain Name Keyword'));
         so.value('DOMAIN-REGEX', _('Domain Name Regex'));
         so.value('IP-CIDR', _('Destination IP'));
@@ -513,6 +534,7 @@ return view.extend({
 
         so = o.subsection.option(form.Value, 'matcher', _('Matcher'));
         so.rmempty = false;
+        so.depends({ 'type': /MATCH/i, '!reverse': true });
 
         so = o.subsection.option(form.Value, 'node', _('Node'));
         so.default = 'GLOBAL';
@@ -523,9 +545,9 @@ return view.extend({
 
         so = o.subsection.option(form.Flag, 'no_resolve', _('No Resolve'));
         so.rmempty = false;
-        so.depends('type', 'IP-CIDR');
-        so.depends('type', 'IP-CIDR6');
-        so.depends('type', 'GEOIP');
+        so.depends('type', /IP-CIDR6?/i);
+        so.depends('type', /IP-ASN/i);
+        so.depends('type', /GEOIP/i);
 
         s.tab('geox', _('GeoX Config'));
 
