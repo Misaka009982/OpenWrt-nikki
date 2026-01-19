@@ -231,15 +231,12 @@ jobs:
             exit 0
           fi
 
-          MESSAGE=$(cat <<'EOF'
-全部构建完成 ✅
-项目: ${{ github.repository }}
-标签: Nikki-v${{ needs.get-version.outputs.source_version }}
-同步日期: ${{ needs.get-version.outputs.sync_date }}
-版本: mihomo v${{ needs.get-version.outputs.source_version }}
-Release: https://github.com/${{ github.repository }}/releases/tag/Nikki-v${{ needs.get-version.outputs.source_version }}
-EOF
-)
+          MESSAGE="全部构建完成 ✅\n"
+          MESSAGE+="项目: ${{ github.repository }}\n"
+          MESSAGE+="标签: Nikki-v${{ needs.get-version.outputs.source_version }}\n"
+          MESSAGE+="同步日期: ${{ needs.get-version.outputs.sync_date }}\n"
+          MESSAGE+="版本: mihomo v${{ needs.get-version.outputs.source_version }}\n"
+          MESSAGE+="Release: https://github.com/${{ github.repository }}/releases/tag/Nikki-v${{ needs.get-version.outputs.source_version }}"
 
           curl -sS -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage" \
             -d chat_id="$TG_CHAT_ID" \
